@@ -49,7 +49,21 @@ internal static class Lengths
         throw new OverflowException("RPC array longer than its message");
     }
 
+    // This runs inside every later mod's assembly load, where an exception fails that mod's load too, and at startup,
+    // where it would stop LobbyGuard's other guards from going in. One bad assembly only loses its own checks.
     private static void Hook(Assembly assembly)
+    {
+        try
+        {
+            HookTypes(assembly);
+        }
+        catch (Exception e)
+        {
+            Plugin.Log.LogWarning($"Skipped RPC length checks in {assembly.GetName().Name}: {e.Message}");
+        }
+    }
+
+    private static void HookTypes(Assembly assembly)
     {
         if (assembly.IsDynamic || assembly == typeof(NetworkBehaviour).Assembly || !References(assembly))
         {
@@ -66,19 +80,37 @@ internal static class Lengths
         }
         foreach (Type? type in types)
         {
-            if (type == null || !typeof(NetworkBehaviour).IsAssignableFrom(type))
+            if (type == null || !Derives(type, typeof(NetworkBehaviour)))
             {
                 continue;
             }
-            foreach (MethodInfo handler in type.GetMethods(Statics | BindingFlags.DeclaredOnly))
+            try
             {
-                if (handler.Name.StartsWith("__rpc_handler_", StringComparison.Ordinal) && ReadsLength(handler))
-                {
-                    hooks.Add(new ILHook(handler, Guard));
-                }
+                hooks.AddRange(type.GetMethods(Statics | BindingFlags.DeclaredOnly)
+                    .Where(handler => handler.Name.StartsWith("__rpc_handler_", StringComparison.Ordinal) && ReadsLength(handler))
+                    .Select(handler => new ILHook(handler, Guard)));
+            }
+            catch (Exception e) when (Missing(e))
+            {
             }
         }
     }
+
+    // A mod's compat code for another mod the player doesn't have names types from an assembly that isn't there. Mono
+    // only fails on them once something looks at the type, so such a type isn't one to check.
+    internal static bool Derives(Type type, Type from)
+    {
+        try
+        {
+            return from.IsAssignableFrom(type);
+        }
+        catch (Exception e) when (Missing(e))
+        {
+            return false;
+        }
+    }
+
+    private static bool Missing(Exception e) => e is TypeLoadException or System.IO.FileNotFoundException or System.IO.FileLoadException;
 
     private static bool References(Assembly assembly) =>
         assembly.GetReferencedAssemblies().Any(a => a.Name == typeof(NetworkBehaviour).Assembly.GetName().Name);

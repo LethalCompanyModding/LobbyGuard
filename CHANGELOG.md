@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+- LobbyGuard's protections go in again when another mod ships support for a mod you don't have. LobbyGuard stopped
+  loading partway through on those, leaving joins and voice unguarded, and could stop that other mod from loading too.
+
 ## 0.2.3
 
 - LobbyGuard now lives at LethalCompanyModding on GitHub and Thunderstore. Its plugin ID is now
