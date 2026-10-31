@@ -2,8 +2,10 @@
 
 ## 0.2.4
 
-- LobbyGuard's protections go in again when another mod ships support for a mod you don't have. LobbyGuard stopped
-  loading partway through on those, leaving joins and voice unguarded, and could stop that other mod from loading too.
+- LobbyGuard protects your lobby again with mods that support other mods you don't have. Plenty of mods do this, like
+  UniversalRadar with LethalLevelLoader. LobbyGuard hit an error looking through those at startup and quit before it
+  set up its join and voice checks, so your lobby only had its packet limit. The same error also stopped some of those
+  mods from loading, like LobbyImprovements without LobbyCompatibility.
 
 ## 0.2.3
 
