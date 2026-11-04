@@ -20,11 +20,11 @@ public sealed class BatchTests
 
     private const uint Destroy = 9;
 
-    private static readonly Rules Rules = new() { ConnectRequest = ConnectRequest, SceneEvent = SceneEvent, HostOnly = new HashSet<uint> { Destroy } };
+    private static readonly Rules rules = new() { ConnectRequest = ConnectRequest, SceneEvent = SceneEvent, HostOnly = new HashSet<uint> { Destroy } };
 
     private static string? Check(ArraySegment<byte> packet) => Check(packet, new Client());
 
-    private static string? Check(ArraySegment<byte> packet, Client client) => Batch.Check(packet, Hash, Rules, client);
+    private static string? Check(ArraySegment<byte> packet, Client client) => Batch.Check(packet, Hash, rules, client);
 
     private const uint ConnectRequest = 7;
 
