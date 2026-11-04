@@ -2,12 +2,10 @@
 
 ## 0.2.5
 
-- Closes a way for a player to change or crash your game. The game runs some messages meant only for clients even when
-  a client sends them to the host, including ones that destroy objects, change who owns them and reset the game clock.
-  Anyone who sends one now gets disconnected.
-- Players are disconnected for asking to join a second time, or for sending more than a few messages before they've
-  been accepted. Those messages also filled the log.
-- A disconnected player's last messages are thrown away. A join request sent just before the kick could add them back.
+- Players can't destroy objects, change who owns them or reset the clock in your game anymore. Only the host should
+  send those messages, and anyone else who does gets disconnected.
+- Players get disconnected for asking to join twice, or for sending more than a few messages before they're accepted.
+- A join request sent just before a kick can't bring that player back.
 
 ## 0.2.4
 

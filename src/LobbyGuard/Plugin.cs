@@ -24,7 +24,7 @@ public class Plugin : BaseUnityPlugin
 
     internal static ManualLogSource Log { get; private set; } = null!;
 
-    // The host's IsClient is true, so these pass NGO's own checks and run on the host when a client sends them.
+    // Only the host sends these, but NGO runs them if a client does, because the host is a client too.
     private static readonly Type[] hostOnlyMessages =
     [
         typeof(AnticipationCounterSyncPongMessage), typeof(ChangeOwnershipMessage), typeof(ClientConnectedMessage),
@@ -86,8 +86,7 @@ public class Plugin : BaseUnityPlugin
         Kick(self.NetworkManager, clientId, why);
     }
 
-    // NGO queues a frame's packets before it handles them, and a client it no longer knows passes all of its checks: a
-    // join request queued before a kick would add the kicked client back.
+    // A kicked client's queued messages still run, and NGO doesn't check them. A queued join request would add it back.
     private static void OnMessage(HandleMessage orig, NetworkMessageManager self, in NetworkMessageHeader header, FastBufferReader reader, ulong senderId, float timestamp, int serializedHeaderSize)
     {
         if (senderId != NetworkManager.ServerClientId && self.m_Owner is NetworkManager { IsServer: true } manager &&

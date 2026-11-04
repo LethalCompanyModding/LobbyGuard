@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace LobbyGuard;
 
-// What a client still waiting to be accepted has sent so far.
+// What a client has sent while it waits to be accepted.
 internal sealed class Joining
 {
     public bool Requested;
@@ -17,13 +17,11 @@ internal static class Batch
     private const ushort Magic = 0x1160;
     private const int HeaderSize = 16;
 
-    // NGO drops these and logs a warning for each. A mod on an honest client can send a few before it's accepted.
+    // A mod on a real client can send a few early. NGO drops them and logs each one.
     public const int MaxEarlyMessages = 32;
 
     // The header is NGO's NetworkBatchHeader: ushort magic, ushort message count, int packet size, ulong hash of the
-    // rest. The hash comes in from outside so this runs without the game. connectRequest is the message type of NGO's
-    // ConnectionRequestMessage; its connection data is checked when the game uses connection approval. joining is null
-    // once the client has been accepted. hostOnly lists the message types a client never sends.
+    // rest. The hash comes in from outside so this runs without the game. joining is null once the client is accepted.
     public static unsafe string? Check(ArraySegment<byte> data, Func<ArraySegment<byte>, ulong> hash, uint connectRequest,
         bool approval = true, Joining? joining = null, ISet<uint>? hostOnly = null)
     {
