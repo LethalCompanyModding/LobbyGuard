@@ -21,7 +21,9 @@ internal static class Batch
     public const int MaxEarlyMessages = 32;
 
     // The header is NGO's NetworkBatchHeader: ushort magic, ushort message count, int packet size, ulong hash of the
-    // rest. The hash comes in from outside so this runs without the game. joining is null once the client is accepted.
+    // rest. The hash comes in from outside so this runs without the game. connectRequest is the message type of
+    // NGO's ConnectionRequestMessage. When the game uses connection approval, its connection data is checked too.
+    // joining is null once the client is accepted.
     public static unsafe string? Check(ArraySegment<byte> data, Func<ArraySegment<byte>, ulong> hash, uint connectRequest,
         bool approval = true, Joining? joining = null, ISet<uint>? hostOnly = null)
     {
