@@ -24,11 +24,26 @@ public class Plugin : BaseUnityPlugin
 
     internal static ManualLogSource Log { get; private set; } = null!;
 
+    // The host's IsClient is true, so these pass NGO's own checks and run on the host when a client sends them.
+    private static readonly Type[] hostOnlyMessages =
+    [
+        typeof(AnticipationCounterSyncPongMessage), typeof(ChangeOwnershipMessage), typeof(ClientConnectedMessage),
+        typeof(ClientDisconnectedMessage), typeof(ClientRpcMessage), typeof(ConnectionApprovedMessage),
+        typeof(CreateObjectMessage), typeof(DestroyObjectMessage), typeof(DisconnectReasonMessage),
+        typeof(ParentSyncMessage), typeof(TimeSyncMessage),
+    ];
+
     private static readonly Dictionary<ulong, (float Start, int Packets, int Messages)> rates = new();
+    private static readonly Dictionary<ulong, Joining> joining = new();
+    private static readonly HashSet<uint> hostOnly = [];
+    private static NetworkMessageManager? hostOnlyFor;
 
     private Hook? hook;
+    private Hook? messageHook;
 
     private delegate void DataEvent(NetworkConnectionManager self, ulong transportId, ref ArraySegment<byte> payload, float receiveTime);
+
+    private delegate void HandleMessage(NetworkMessageManager self, in NetworkMessageHeader header, FastBufferReader reader, ulong senderId, float timestamp, int serializedHeaderSize);
 
     private void Awake()
     {
@@ -36,6 +51,8 @@ public class Plugin : BaseUnityPlugin
         const BindingFlags any = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
         hook = new Hook(typeof(NetworkConnectionManager).GetMethod(nameof(NetworkConnectionManager.DataEventHandler), any),
             typeof(Plugin).GetMethod(nameof(OnData), any));
+        messageHook = new Hook(typeof(NetworkMessageManager).GetMethod(nameof(NetworkMessageManager.HandleMessage), any),
+            typeof(Plugin).GetMethod(nameof(OnMessage), any));
         Lengths.HookAll();
         Approval.Hook();
         Voice.Hook();
@@ -56,10 +73,8 @@ public class Plugin : BaseUnityPlugin
         {
             return;
         }
-        uint? connectRequest = self.NetworkManager.NetworkConfig.ConnectionApproval
-            ? self.MessageManager.GetMessageType(typeof(ConnectionRequestMessage))
-            : null;
-        string? why = Batch.Check(payload, Hash, connectRequest) ??
+        uint connectRequest = self.MessageManager.GetMessageType(typeof(ConnectionRequestMessage));
+        string? why = Batch.Check(payload, Hash, connectRequest, self.NetworkManager.NetworkConfig.ConnectionApproval, JoiningState(self, clientId), HostOnly(self.MessageManager)) ??
             (Flooding(transportId, BitConverter.ToUInt16(payload.Array!, payload.Offset + 2)) ? "too many packets or messages" : null);
         if (why == null)
         {
@@ -67,7 +82,52 @@ public class Plugin : BaseUnityPlugin
             return;
         }
         rates.Remove(transportId);
+        joining.Remove(clientId);
         Kick(self.NetworkManager, clientId, why);
+    }
+
+    // NGO queues a frame's packets before it handles them, and a client it no longer knows passes all of its checks: a
+    // join request queued before a kick would add the kicked client back.
+    private static void OnMessage(HandleMessage orig, NetworkMessageManager self, in NetworkMessageHeader header, FastBufferReader reader, ulong senderId, float timestamp, int serializedHeaderSize)
+    {
+        if (senderId != NetworkManager.ServerClientId && self.m_Owner is NetworkManager { IsServer: true } manager &&
+            !manager.ConnectionManager.PendingClients.ContainsKey(senderId) && !manager.ConnectionManager.ConnectedClients.ContainsKey(senderId))
+        {
+            reader.Dispose();
+            return;
+        }
+        orig(self, in header, reader, senderId, timestamp, serializedHeaderSize);
+    }
+
+    private static Joining? JoiningState(NetworkConnectionManager self, ulong clientId)
+    {
+        if (!self.PendingClients.ContainsKey(clientId))
+        {
+            joining.Remove(clientId);
+            return null;
+        }
+        if (!joining.TryGetValue(clientId, out Joining? state))
+        {
+            joining[clientId] = state = new Joining();
+        }
+        return state;
+    }
+
+    private static HashSet<uint> HostOnly(NetworkMessageManager messages)
+    {
+        if (hostOnlyFor != messages)
+        {
+            hostOnlyFor = messages;
+            hostOnly.Clear();
+            foreach (Type type in hostOnlyMessages)
+            {
+                if (messages.m_MessageTypes.TryGetValue(type, out uint id))
+                {
+                    hostOnly.Add(id);
+                }
+            }
+        }
+        return hostOnly;
     }
 
     // Names the player by SteamID in online games, so the host can block them. LAN games only have Netcode's number.

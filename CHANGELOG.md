@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.5
+
+- Closes a way for a player to change or crash your game. The game runs some messages meant only for clients even when
+  a client sends them to the host, including ones that destroy objects, change who owns them and reset the game clock.
+  Anyone who sends one now gets disconnected.
+- Players are disconnected for asking to join a second time, or for sending more than a few messages before they've
+  been accepted. Those messages also filled the log.
+- A disconnected player's last messages are thrown away. A join request sent just before the kick could add them back.
+
 ## 0.2.4
 
 - LobbyGuard protects your lobby again with mods that support other mods you don't have. Plenty of mods do this, like

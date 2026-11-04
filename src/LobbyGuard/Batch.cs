@@ -1,6 +1,14 @@
 using System;
+using System.Collections.Generic;
 
 namespace LobbyGuard;
+
+// What a client still waiting to be accepted has sent so far.
+internal sealed class Joining
+{
+    public bool Requested;
+    public int EarlyMessages;
+}
 
 // Checks a packet the way NGO's NetworkMessageManager.HandleIncomingData reads it, but strictly, so a bad one never
 // gets there.
@@ -9,10 +17,15 @@ internal static class Batch
     private const ushort Magic = 0x1160;
     private const int HeaderSize = 16;
 
+    // NGO drops these and logs a warning for each. A mod on an honest client can send a few before it's accepted.
+    public const int MaxEarlyMessages = 32;
+
     // The header is NGO's NetworkBatchHeader: ushort magic, ushort message count, int packet size, ulong hash of the
-    // rest. The hash comes in from outside so this runs without the game. Pass connectRequest, the message type of
-    // NGO's ConnectionRequestMessage, when the game uses connection approval: its connection data is checked too.
-    public static unsafe string? Check(ArraySegment<byte> data, Func<ArraySegment<byte>, ulong> hash, uint? connectRequest = null)
+    // rest. The hash comes in from outside so this runs without the game. connectRequest is the message type of NGO's
+    // ConnectionRequestMessage; its connection data is checked when the game uses connection approval. joining is null
+    // once the client has been accepted. hostOnly lists the message types a client never sends.
+    public static unsafe string? Check(ArraySegment<byte> data, Func<ArraySegment<byte>, ulong> hash, uint connectRequest,
+        bool approval = true, Joining? joining = null, ISet<uint>? hostOnly = null)
     {
         if (data.Array == null || data.Count < HeaderSize)
         {
@@ -40,9 +53,25 @@ internal static class Batch
                 {
                     return "message bigger than its packet";
                 }
-                if (type == connectRequest && !ConnectionData(p, pos, pos + (int)size))
+                if (hostOnly != null && hostOnly.Contains(type))
                 {
-                    return "bad connection request";
+                    return "sent a message only the host can send";
+                }
+                if (type == connectRequest)
+                {
+                    if (joining == null || joining.Requested)
+                    {
+                        return "asked to join a second time";
+                    }
+                    joining.Requested = true;
+                    if (approval && !ConnectionData(p, pos, pos + (int)size))
+                    {
+                        return "bad connection request";
+                    }
+                }
+                else if (joining != null && ++joining.EarlyMessages > MaxEarlyMessages)
+                {
+                    return "too many messages before being accepted";
                 }
                 pos += (int)size;
             }

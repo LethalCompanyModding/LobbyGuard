@@ -16,7 +16,7 @@ public sealed class BatchTests
         return sum;
     }
 
-    private static string? Check(ArraySegment<byte> packet) => Batch.Check(packet, Hash);
+    private static string? Check(ArraySegment<byte> packet) => Batch.Check(packet, Hash, ConnectRequest, joining: new Joining());
 
     private const uint ConnectRequest = 7;
 
@@ -92,9 +92,43 @@ public sealed class BatchTests
     [Fact]
     public void ChecksConnectionData()
     {
-        Assert.Null(Batch.Check(Message(ConnectRequest, ConnectionRequest(3)), Hash, ConnectRequest));
-        Assert.Equal("bad connection request", Batch.Check(Message(ConnectRequest, ConnectionRequest(int.MaxValue)), Hash, ConnectRequest));
-        Assert.Equal("bad connection request", Batch.Check(Message(ConnectRequest, ConnectionRequest(-1)), Hash, ConnectRequest));
-        Assert.Null(Batch.Check(Message(ConnectRequest + 1, ConnectionRequest(int.MaxValue)), Hash, ConnectRequest));
+        Assert.Null(Check(Message(ConnectRequest, ConnectionRequest(3))));
+        Assert.Equal("bad connection request", Check(Message(ConnectRequest, ConnectionRequest(int.MaxValue))));
+        Assert.Equal("bad connection request", Check(Message(ConnectRequest, ConnectionRequest(-1))));
+        Assert.Null(Check(Message(ConnectRequest + 1, ConnectionRequest(int.MaxValue))));
+    }
+
+    [Fact]
+    public void AllowsOneJoinRequest()
+    {
+        ArraySegment<byte> request = Message(ConnectRequest, ConnectionRequest(3));
+        var state = new Joining();
+        Assert.Null(Batch.Check(request, Hash, ConnectRequest, joining: state));
+        Assert.Equal("asked to join a second time", Batch.Check(request, Hash, ConnectRequest, joining: state));
+        Assert.Equal("asked to join a second time", Batch.Check(request, Hash, ConnectRequest));
+    }
+
+    [Fact]
+    public void LimitsMessagesBeforeBeingAccepted()
+    {
+        ArraySegment<byte> early = Message(ConnectRequest + 1, [1]);
+        var state = new Joining();
+        for (int i = 0; i < Batch.MaxEarlyMessages; i++)
+        {
+            Assert.Null(Batch.Check(early, Hash, ConnectRequest, joining: state));
+        }
+        Assert.Equal("too many messages before being accepted", Batch.Check(early, Hash, ConnectRequest, joining: state));
+        Assert.Null(Batch.Check(early, Hash, ConnectRequest));
+    }
+
+    [Fact]
+    public void RejectsHostOnlyMessagesAtAnyStage()
+    {
+        const uint destroy = 9;
+        var hostOnly = new HashSet<uint> { destroy };
+        ArraySegment<byte> packet = Message(destroy, [1]);
+        const string why = "sent a message only the host can send";
+        Assert.Equal(why, Batch.Check(packet, Hash, ConnectRequest, hostOnly: hostOnly));
+        Assert.Equal(why, Batch.Check(packet, Hash, ConnectRequest, joining: new Joining(), hostOnly: hostOnly));
     }
 }
