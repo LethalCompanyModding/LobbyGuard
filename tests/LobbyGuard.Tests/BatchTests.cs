@@ -122,6 +122,14 @@ public sealed class BatchTests
     }
 
     [Fact]
+    public void ListsTheTypesItCanRead()
+    {
+        Assert.Equal([3u, 4000u], Batch.Types(Packet(2, Packed(3), Packed(2), [1, 2], Packed(4000), Packed(0))));
+        Assert.Equal([3u], Batch.Types(Packet(2, Packed(3), Packed(0), [0])));
+        Assert.Empty(Batch.Types(new ArraySegment<byte>(new byte[8])));
+    }
+
+    [Fact]
     public void RejectsHostOnlyMessagesAtAnyStage()
     {
         const uint destroy = 9;

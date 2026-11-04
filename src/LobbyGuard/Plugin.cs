@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using BepInEx;
 using BepInEx.Logging;
@@ -83,7 +84,15 @@ public class Plugin : BaseUnityPlugin
         }
         rates.Remove(transportId);
         joining.Remove(clientId);
-        Kick(self.NetworkManager, clientId, why);
+        Kick(self.NetworkManager, clientId, $"{why} ({Contents(self.MessageManager, payload)})");
+    }
+
+    // What the packet held, so the log shows what a player tried. A bad packet can name any number of types.
+    private static string Contents(NetworkMessageManager messages, ArraySegment<byte> payload)
+    {
+        Type[] names = messages.m_ReverseTypeMap;
+        return string.Join(", ", Batch.Types(payload).GroupBy(type => type).Take(10)
+            .Select(g => $"{(g.Key < names.Length ? names[g.Key]?.Name : null) ?? $"type {g.Key}"} x{g.Count()}"));
     }
 
     // A kicked client's queued messages still run, and NGO doesn't check them. A queued join request would add it back.

@@ -79,6 +79,32 @@ internal static class Batch
         return null;
     }
 
+    // The message types a packet holds, as far as it can be read.
+    public static unsafe List<uint> Types(ArraySegment<byte> data)
+    {
+        var types = new List<uint>();
+        if (data.Array == null || data.Count < HeaderSize)
+        {
+            return types;
+        }
+        fixed (byte* start = data.Array)
+        {
+            byte* p = start + data.Offset;
+            int pos = HeaderSize;
+            for (int i = 0; i < *(ushort*)(p + 2); i++)
+            {
+                if (!Packed(p, data.Count, ref pos, out uint type) || !Packed(p, data.Count, ref pos, out uint size) ||
+                    size > (uint)(data.Count - pos))
+                {
+                    break;
+                }
+                types.Add(type);
+                pos += (int)size;
+            }
+        }
+        return types;
+    }
+
     // ConnectionRequestMessage.Deserialize with approval on: a zigzag packed count of (uint hash, packed version) pairs,
     // a ulong config hash, then the connection data as an int length and that many bytes.
     private static unsafe bool ConnectionData(byte* p, int pos, int end)

@@ -6,6 +6,7 @@
   send those messages, and anyone else who does gets disconnected.
 - Players get disconnected for asking to join twice, or for sending more than a few messages before they're accepted.
 - A join request sent just before a kick can't bring that player back.
+- The log now says what was in the packet that got a player disconnected.
 
 ## 0.2.4
 
