@@ -16,7 +16,15 @@ public sealed class BatchTests
         return sum;
     }
 
-    private static string? Check(ArraySegment<byte> packet) => Batch.Check(packet, Hash, ConnectRequest, joining: new Joining());
+    private const uint SceneEvent = 12;
+
+    private const uint Destroy = 9;
+
+    private static readonly Rules Rules = new() { ConnectRequest = ConnectRequest, SceneEvent = SceneEvent, HostOnly = new HashSet<uint> { Destroy } };
+
+    private static string? Check(ArraySegment<byte> packet) => Check(packet, new Client());
+
+    private static string? Check(ArraySegment<byte> packet, Client client) => Batch.Check(packet, Hash, Rules, client);
 
     private const uint ConnectRequest = 7;
 
@@ -102,23 +110,44 @@ public sealed class BatchTests
     public void AllowsOneJoinRequest()
     {
         ArraySegment<byte> request = Message(ConnectRequest, ConnectionRequest(3));
-        var state = new Joining();
-        Assert.Null(Batch.Check(request, Hash, ConnectRequest, joining: state));
-        Assert.Equal("asked to join a second time", Batch.Check(request, Hash, ConnectRequest, joining: state));
-        Assert.Equal("asked to join a second time", Batch.Check(request, Hash, ConnectRequest));
+        var client = new Client();
+        Assert.Null(Check(request, client));
+        Assert.Equal("asked to join a second time", Check(request, client));
+        Assert.Equal("asked to join a second time", Check(request, new Client { Accepted = true }));
     }
 
     [Fact]
     public void LimitsMessagesBeforeBeingAccepted()
     {
         ArraySegment<byte> early = Message(ConnectRequest + 1, [1]);
-        var state = new Joining();
+        var client = new Client();
         for (int i = 0; i < Batch.MaxEarlyMessages; i++)
         {
-            Assert.Null(Batch.Check(early, Hash, ConnectRequest, joining: state));
+            Assert.Null(Check(early, client));
         }
-        Assert.Equal("too many messages before being accepted", Batch.Check(early, Hash, ConnectRequest, joining: state));
-        Assert.Null(Batch.Check(early, Hash, ConnectRequest));
+        Assert.Equal("too many messages before being accepted", Check(early, client));
+        Assert.Null(Check(early, new Client { Accepted = true }));
+    }
+
+    [Fact]
+    public void LimitsConnectionData()
+    {
+        byte[] body = ConnectionRequest(Batch.MaxConnectionData + 1);
+        Assert.Equal("bad connection request", Check(Message(ConnectRequest, [.. body, .. new byte[Batch.MaxConnectionData]])));
+        Assert.Null(Check(Message(ConnectRequest, [.. ConnectionRequest(Batch.MaxConnectionData), .. new byte[Batch.MaxConnectionData]])));
+    }
+
+    [Fact]
+    public void AllowsOnlyTheSceneEventsAClientSends()
+    {
+        var client = new Client { Accepted = true };
+        Assert.Null(Check(Message(SceneEvent, [6]), client));
+        Assert.Null(Check(Message(SceneEvent, [6]), client));
+        Assert.Null(Check(Message(SceneEvent, [7]), client));
+        Assert.Null(Check(Message(SceneEvent, [8]), client));
+        Assert.Equal("finished joining a second time", Check(Message(SceneEvent, [8]), client));
+        Assert.Equal("sent a scene change only the host can send", Check(Message(SceneEvent, [0]), new Client { Accepted = true }));
+        Assert.Equal("sent a scene change only the host can send", Check(Message(SceneEvent, [10]), new Client { Accepted = true }));
     }
 
     [Fact]
@@ -132,11 +161,9 @@ public sealed class BatchTests
     [Fact]
     public void RejectsHostOnlyMessagesAtAnyStage()
     {
-        const uint destroy = 9;
-        var hostOnly = new HashSet<uint> { destroy };
-        ArraySegment<byte> packet = Message(destroy, [1]);
+        ArraySegment<byte> packet = Message(Destroy, [1]);
         const string why = "sent a message only the host can send";
-        Assert.Equal(why, Batch.Check(packet, Hash, ConnectRequest, hostOnly: hostOnly));
-        Assert.Equal(why, Batch.Check(packet, Hash, ConnectRequest, joining: new Joining(), hostOnly: hostOnly));
+        Assert.Equal(why, Check(packet, new Client { Accepted = true }));
+        Assert.Equal(why, Check(packet, new Client()));
     }
 }

@@ -17,6 +17,13 @@ namespace LobbyGuard;
 [BepInProcess("Lethal Company.exe")]
 public class Plugin : BaseUnityPlugin
 {
+    // A player's messages shouldn't cause errors at all. This leaves room for a mod that's broken for them.
+    private const int MaxErrorsPerSecond = 100;
+
+    // A joining client's RPCs can wait a moment for their objects. NGO keeps a copy of each one, and clearing them out
+    // takes stack space for each object they name.
+    private const int MaxDeferredPerSecond = 500;
+
     // Netcode sends a client's packets once per channel per frame, so this leaves room for a very high frame rate.
     private const int MaxPacketsPerSecond = 2000;
 
@@ -35,16 +42,28 @@ public class Plugin : BaseUnityPlugin
     ];
 
     private static readonly Dictionary<ulong, (float Start, int Packets, int Messages)> rates = new();
-    private static readonly Dictionary<ulong, Joining> joining = new();
-    private static readonly HashSet<uint> hostOnly = [];
-    private static NetworkMessageManager? hostOnlyFor;
+    private static readonly Dictionary<ulong, Client> clients = new();
+    private static readonly Dictionary<ulong, (float Start, int Count)> errors = new();
+    private static readonly Dictionary<ulong, (float Start, int Count)> deferred = new();
+    private static Rules? rules;
+    private static NetworkMessageManager? rulesFor;
+
+    // Who sent the message being handled, for the errors it causes. 0 is the host.
+    private static ulong handling;
+    private static string? lastError;
 
     private Hook? hook;
     private Hook? messageHook;
+    private Hook? deferHook;
+    private Hook? disconnectHook;
 
     private delegate void DataEvent(NetworkConnectionManager self, ulong transportId, ref ArraySegment<byte> payload, float receiveTime);
 
     private delegate void HandleMessage(NetworkMessageManager self, in NetworkMessageHeader header, FastBufferReader reader, ulong senderId, float timestamp, int serializedHeaderSize);
+
+    private delegate void ClientGone(NetworkConnectionManager self, ulong clientId);
+
+    private delegate void DeferMessage(DeferredMessageManager self, IDeferredNetworkMessageManager.TriggerType trigger, ulong key, FastBufferReader reader, ref NetworkContext context);
 
     private void Awake()
     {
@@ -54,6 +73,12 @@ public class Plugin : BaseUnityPlugin
             typeof(Plugin).GetMethod(nameof(OnData), any));
         messageHook = new Hook(typeof(NetworkMessageManager).GetMethod(nameof(NetworkMessageManager.HandleMessage), any),
             typeof(Plugin).GetMethod(nameof(OnMessage), any));
+        deferHook = new Hook(typeof(DeferredMessageManager).GetMethod(nameof(DeferredMessageManager.DeferMessage), any),
+            typeof(Plugin).GetMethod(nameof(OnDefer), any));
+        disconnectHook = new Hook(typeof(NetworkConnectionManager).GetMethod(nameof(NetworkConnectionManager.OnClientDisconnectFromServer), any),
+            typeof(Plugin).GetMethod(nameof(OnClientGone), any));
+        Application.logMessageReceived += OnLog;
+        Rpcs.Hook();
         Lengths.HookAll();
         Approval.Hook();
         Voice.Hook();
@@ -74,8 +99,7 @@ public class Plugin : BaseUnityPlugin
         {
             return;
         }
-        uint connectRequest = self.MessageManager.GetMessageType(typeof(ConnectionRequestMessage));
-        string? why = Batch.Check(payload, Hash, connectRequest, self.NetworkManager.NetworkConfig.ConnectionApproval, JoiningState(self, clientId), HostOnly(self.MessageManager)) ??
+        string? why = Batch.Check(payload, Hash, RulesFor(self), ClientState(self, clientId)) ??
             (Flooding(transportId, BitConverter.ToUInt16(payload.Array!, payload.Offset + 2)) ? "too many packets or messages" : null);
         if (why == null)
         {
@@ -83,7 +107,7 @@ public class Plugin : BaseUnityPlugin
             return;
         }
         rates.Remove(transportId);
-        joining.Remove(clientId);
+        clients.Remove(clientId);
         Kick(self.NetworkManager, clientId, $"{why} ({Contents(self.MessageManager, payload)})");
     }
 
@@ -104,38 +128,92 @@ public class Plugin : BaseUnityPlugin
             reader.Dispose();
             return;
         }
-        orig(self, in header, reader, senderId, timestamp, serializedHeaderSize);
+        ulong outer = handling;
+        handling = senderId;
+        lastError = null;
+        try
+        {
+            orig(self, in header, reader, senderId, timestamp, serializedHeaderSize);
+        }
+        finally
+        {
+            handling = outer;
+        }
+        if (lastError != null && Over(errors, senderId, MaxErrorsPerSecond) && self.m_Owner is NetworkManager { IsServer: true } host)
+        {
+            errors.Remove(senderId);
+            Kick(host, senderId, $"too many errors from their messages, the last: {lastError}");
+        }
     }
 
-    private static Joining? JoiningState(NetworkConnectionManager self, ulong clientId)
+    // Client numbers can come around again, and the next player with this one starts clean.
+    private static void OnClientGone(ClientGone orig, NetworkConnectionManager self, ulong clientId)
     {
-        if (!self.PendingClients.ContainsKey(clientId))
-        {
-            joining.Remove(clientId);
-            return null;
-        }
-        if (!joining.TryGetValue(clientId, out Joining? state))
-        {
-            joining[clientId] = state = new Joining();
-        }
-        return state;
+        clients.Remove(clientId);
+        errors.Remove(clientId);
+        deferred.Remove(clientId);
+        orig(self, clientId);
     }
 
-    private static HashSet<uint> HostOnly(NetworkMessageManager messages)
+    private static void OnLog(string message, string stackTrace, LogType type)
     {
-        if (hostOnlyFor != messages)
+        if (handling != NetworkManager.ServerClientId && type is LogType.Error or LogType.Exception)
         {
-            hostOnlyFor = messages;
-            hostOnly.Clear();
+            lastError = message.Length > 200 ? message.Substring(0, 200) : message;
+        }
+    }
+
+    private static void OnDefer(DeferMessage orig, DeferredMessageManager self, IDeferredNetworkMessageManager.TriggerType trigger, ulong key, FastBufferReader reader, ref NetworkContext context)
+    {
+        if (context.SenderId != NetworkManager.ServerClientId && context.SystemOwner is NetworkManager { IsServer: true } manager &&
+            Over(deferred, context.SenderId, MaxDeferredPerSecond))
+        {
+            deferred.Remove(context.SenderId);
+            Kick(manager, context.SenderId, "too many messages for objects that don't exist");
+            return;
+        }
+        orig(self, trigger, key, reader, ref context);
+    }
+
+    private static bool Over(Dictionary<ulong, (float Start, int Count)> counts, ulong clientId, int limit)
+    {
+        float now = Time.realtimeSinceStartup;
+        (float start, int count) = counts.TryGetValue(clientId, out (float Start, int Count) seen) && now - seen.Start < 1 ? seen : (now, 0);
+        counts[clientId] = (start, ++count);
+        return count > limit;
+    }
+
+    private static Client ClientState(NetworkConnectionManager self, ulong clientId)
+    {
+        if (!clients.TryGetValue(clientId, out Client? client))
+        {
+            clients[clientId] = client = new Client();
+        }
+        client.Accepted = !self.PendingClients.ContainsKey(clientId);
+        return client;
+    }
+
+    private static Rules RulesFor(NetworkConnectionManager self)
+    {
+        NetworkMessageManager messages = self.MessageManager;
+        if (rules == null || rulesFor != messages)
+        {
+            rulesFor = messages;
+            rules = new Rules
+            {
+                ConnectRequest = messages.GetMessageType(typeof(ConnectionRequestMessage)),
+                SceneEvent = messages.GetMessageType(typeof(SceneEventMessage)),
+                Approval = self.NetworkManager.NetworkConfig.ConnectionApproval,
+            };
             foreach (Type type in hostOnlyMessages)
             {
                 if (messages.m_MessageTypes.TryGetValue(type, out uint id))
                 {
-                    hostOnly.Add(id);
+                    rules.HostOnly.Add(id);
                 }
             }
         }
-        return hostOnly;
+        return rules;
     }
 
     // Names the player by SteamID in online games, so the host can block them. LAN games only have Netcode's number.

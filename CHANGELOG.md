@@ -2,8 +2,11 @@
 
 ## 0.2.5
 
-- Players can't destroy objects, change who owns them or reset the clock in your game anymore. Only the host should
-  send those messages, and anyone else who does gets disconnected.
+- Players can't destroy objects, change who owns them, reset the clock, load scenes or run the game's host-to-player
+  calls in your game anymore, like ending the round. Only the host should send those, and anyone else who does gets
+  disconnected.
+- Players get disconnected for pretending to finish joining twice, for messages about many objects that don't exist,
+  and for messages that keep causing errors.
 - Players get disconnected for asking to join twice, or for sending more than a few messages before they're accepted.
 - A join request sent just before a kick can't bring that player back.
 - The log now says what was in the packet that got a player disconnected.

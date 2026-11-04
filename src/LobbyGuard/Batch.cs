@@ -3,11 +3,22 @@ using System.Collections.Generic;
 
 namespace LobbyGuard;
 
-// What a client has sent while it waits to be accepted.
-internal sealed class Joining
+// What a client has sent on this connection.
+internal sealed class Client
 {
+    public bool Accepted;
     public bool Requested;
     public int EarlyMessages;
+    public bool Synchronized;
+}
+
+// The message types that get a closer look. They're looked up in the game, so this runs without it.
+internal sealed class Rules
+{
+    public uint ConnectRequest;
+    public uint SceneEvent;
+    public bool Approval = true;
+    public ISet<uint> HostOnly = new HashSet<uint>();
 }
 
 // Checks a packet the way NGO's NetworkMessageManager.HandleIncomingData reads it, but strictly, so a bad one never
@@ -20,12 +31,18 @@ internal static class Batch
     // A mod on a real client can send a few early. NGO drops them and logs each one.
     public const int MaxEarlyMessages = 32;
 
+    // The game sends its version and SteamID, and logs whatever it gets.
+    public const int MaxConnectionData = 1024;
+
+    // NGO's SceneEventType values a client sends.
+    private const byte LoadComplete = 6;
+    private const byte UnloadComplete = 7;
+    private const byte SynchronizeComplete = 8;
+
     // The header is NGO's NetworkBatchHeader: ushort magic, ushort message count, int packet size, ulong hash of the
-    // rest. The hash comes in from outside so this runs without the game. connectRequest is the message type of
+    // rest. The hash comes in from outside so this runs without the game. rules.ConnectRequest is the message type of
     // NGO's ConnectionRequestMessage. When the game uses connection approval, its connection data is checked too.
-    // joining is null once the client is accepted.
-    public static unsafe string? Check(ArraySegment<byte> data, Func<ArraySegment<byte>, ulong> hash, uint connectRequest,
-        bool approval = true, Joining? joining = null, ISet<uint>? hostOnly = null)
+    public static unsafe string? Check(ArraySegment<byte> data, Func<ArraySegment<byte>, ulong> hash, Rules rules, Client client)
     {
         if (data.Array == null || data.Count < HeaderSize)
         {
@@ -53,25 +70,39 @@ internal static class Batch
                 {
                     return "message bigger than its packet";
                 }
-                if (hostOnly != null && hostOnly.Contains(type))
+                if (rules.HostOnly.Contains(type))
                 {
                     return "sent a message only the host can send";
                 }
-                if (type == connectRequest)
+                if (type == rules.ConnectRequest)
                 {
-                    if (joining == null || joining.Requested)
+                    if (client.Accepted || client.Requested)
                     {
                         return "asked to join a second time";
                     }
-                    joining.Requested = true;
-                    if (approval && !ConnectionData(p, pos, pos + (int)size))
+                    client.Requested = true;
+                    if (rules.Approval && !ConnectionData(p, pos, pos + (int)size))
                     {
                         return "bad connection request";
                     }
                 }
-                else if (joining != null && ++joining.EarlyMessages > MaxEarlyMessages)
+                else if (!client.Accepted && ++client.EarlyMessages > MaxEarlyMessages)
                 {
                     return "too many messages before being accepted";
+                }
+                if (type == rules.SceneEvent && size > 0)
+                {
+                    byte sceneEvent = p[pos];
+                    if (sceneEvent != LoadComplete && sceneEvent != UnloadComplete && sceneEvent != SynchronizeComplete)
+                    {
+                        return "sent a scene change only the host can send";
+                    }
+                    // The host runs its player-joined code each time it gets this one.
+                    if (sceneEvent == SynchronizeComplete && client.Synchronized)
+                    {
+                        return "finished joining a second time";
+                    }
+                    client.Synchronized |= sceneEvent == SynchronizeComplete;
                 }
                 pos += (int)size;
             }
@@ -127,7 +158,7 @@ internal static class Batch
             return false;
         }
         int length = *(int*)(p + pos + 8);
-        return length >= 0 && length <= end - pos - 12;
+        return length >= 0 && length <= MaxConnectionData && length <= end - pos - 12;
     }
 
     // NGO's ByteUnpacker.ReadValueBitPacked for a uint: the low 3 bits of the first byte give the length, 1 to 5.
