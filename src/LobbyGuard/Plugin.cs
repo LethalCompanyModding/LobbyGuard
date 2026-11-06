@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using BepInEx;
+using BepInEx.Configuration;
 using BepInEx.Logging;
 using MonoMod.RuntimeDetour;
 using Netcode.Transports.Facepunch;
@@ -41,7 +42,8 @@ public class Plugin : BaseUnityPlugin
         typeof(ParentSyncMessage), typeof(TimeSyncMessage),
     ];
 
-    private static readonly Dictionary<ulong, (float Start, int Packets, int Messages)> rates = new();
+    private static readonly Rates rates = new();
+    private static ConfigEntry<bool>? logPeakRates;
     private static readonly Dictionary<ulong, Client> clients = new();
     private static readonly Dictionary<ulong, (float Start, int Count)> errors = new();
     private static readonly Dictionary<ulong, (float Start, int Count)> deferred = new();
@@ -68,6 +70,8 @@ public class Plugin : BaseUnityPlugin
     private void Awake()
     {
         Log = Logger;
+        logPeakRates = Config.Bind("Debug", "LogPeakRates", false,
+            "Log each player's busiest second so far, in packets and messages, to set the flood limits from real lobbies.");
         const BindingFlags any = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
         hook = new Hook(typeof(NetworkConnectionManager).GetMethod(nameof(NetworkConnectionManager.DataEventHandler), any),
             typeof(Plugin).GetMethod(nameof(OnData), any));
@@ -247,10 +251,11 @@ public class Plugin : BaseUnityPlugin
 
     private static bool Flooding(ulong transportId, int messages)
     {
-        float now = Time.realtimeSinceStartup;
-        (float start, int packets, int total) = rates.TryGetValue(transportId, out (float Start, int Packets, int Messages) rate) &&
-            now - rate.Start < 1 ? rate : (now, 0, 0);
-        rates[transportId] = (start, ++packets, total += messages);
+        (int packets, int total) = rates.Add(transportId, messages, Time.realtimeSinceStartup, out (int Packets, int Messages)? peak);
+        if (peak is { } busiest && logPeakRates?.Value == true)
+        {
+            Log.LogInfo($"Busiest second from transport {transportId} so far: {busiest.Packets} packets, {busiest.Messages} messages");
+        }
         return packets > MaxPacketsPerSecond || total > MaxMessagesPerSecond;
     }
 }
