@@ -8,11 +8,13 @@ using Dissonance.Audio.Playback;
 using Dissonance.Networking;
 using Dissonance.Networking.Client;
 using MonoMod.RuntimeDetour;
+using NAudio.Wave;
 
 namespace LobbyGuard;
 
 // A host without LobbyGuard passes on voice frames the decoder can't read. Decoding runs on Unity's audio thread and
-// nothing there catches the error, so a broken frame plays as silence instead.
+// nothing there catches the error, so a broken frame plays as silence instead. It passes on any codec settings too, and
+// each player's decoder buffers are sized from theirs.
 internal static class Playback
 {
     private delegate int OpusOrig(OpusDecoder self, EncodedBuffer input, ArraySegment<float> output);
@@ -23,6 +25,8 @@ internal static class Playback
 
     private delegate void ReceiveOrig(PeerVoiceReceiver self, ref PacketReader reader, DateTime utcNow);
 
+    private delegate void StartOrig(SpeechSessionStream self, FrameFormat format, DateTime? now, IJitterEstimator? jitter);
+
     private static readonly Dictionary<IVoiceDecoder, string> speakers = new();
     private static readonly HashSet<string> logged = new();
 
@@ -30,6 +34,7 @@ internal static class Playback
     private static Hook? identity;
     private static Hook? prepare;
     private static Hook? receive;
+    private static Hook? start;
 
     public static void Hook()
     {
@@ -42,6 +47,8 @@ internal static class Playback
             typeof(Playback).GetMethod(nameof(Prepare), any));
         receive = new Hook(typeof(PeerVoiceReceiver).GetMethod(nameof(PeerVoiceReceiver.ReceivePacket), any),
             typeof(Playback).GetMethod(nameof(Receive), any));
+        start = new Hook(typeof(SpeechSessionStream).GetMethod(nameof(SpeechSessionStream.StartSession), any),
+            typeof(Playback).GetMethod(nameof(Start), any));
     }
 
     // Dissonance needs exactly a frame's worth of samples back, and a valid packet of another length throws as well.
@@ -103,6 +110,16 @@ internal static class Playback
             return;
         }
         orig(self, ref reader, utcNow);
+    }
+
+    // Settings the game never uses get the usual Opus decoder instead, and frames it can't read play as silence.
+    private static void Start(StartOrig orig, SpeechSessionStream self, FrameFormat format, DateTime? now, IJitterEstimator? jitter)
+    {
+        if (!Voice.Allowed((byte)format.Codec, format.FrameSize, format.WaveFormat.SampleRate))
+        {
+            format = new FrameFormat(Codec.Opus, new WaveFormat(48000, 1), 960);
+        }
+        orig(self, format, now, jitter);
     }
 
     private static int Silence(IVoiceDecoder decoder, ArraySegment<float> output)
