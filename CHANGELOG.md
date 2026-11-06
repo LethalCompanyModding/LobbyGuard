@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- The host now checks the voice each player sends before passing it on. Anyone who sends voice the game can't play,
+  or voice under another player's name, gets disconnected.
+- Players can add LobbyGuard too. When a host without it passes on broken voice, they hear a moment of silence instead
+  of an error.
+
 ## 0.2.5
 
 - Players can't destroy objects, change who owns them, reset the clock, load scenes or run the game's host-to-player
