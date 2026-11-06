@@ -6,6 +6,14 @@
   or voice under another player's name, gets disconnected.
 - Players can add LobbyGuard too. When a host without it passes on broken voice, they hear a moment of silence instead
   of an error.
+- The host now checks everything players send each other through it. Anyone who sends text as someone else, sends a
+  message only the host should (like one that takes a player out of voice chat), or names the same player twice gets
+  disconnected.
+- Players get disconnected for joining voice chat under another player's name, or for changing another player's voice
+  settings.
+- A player can't make the host set aside gigabytes of memory anymore by claiming a voice packet is bigger than it is.
+- Players with LobbyGuard ignore voice settings the game never uses. A host without it passes those on, and they set
+  the size of each player's voice buffers.
 
 ## 0.2.5
 
