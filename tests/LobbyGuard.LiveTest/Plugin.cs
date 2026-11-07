@@ -323,7 +323,7 @@ internal static class Cases
             }
         }),
         ..VoiceCases.All(),
-        new("error-flood", "too many errors from their messages", (m, c) => Receive(m, c, Batch(150, Repeat(ShortRpc(m), 150)))),
+        new("error-flood", "too many errors from their messages", (m, c) => ErrorFlood(m, c)),
         new("deferred-flood", "too many messages for objects that don't exist", (m, c) => Receive(m, c, Batch(600, Repeat(MissingObjectRpc(m), 600)))),
         new("lan-has-no-cooldown", "", (m, c) => { }, Kind.Direct, lines => lines.Any(l => l.Contains("rejoin for")) ? "LobbyGuard set a cooldown for a client with no SteamID" : null),
     ];
@@ -381,6 +381,18 @@ internal static class Cases
 
     // HUDManager.ScanNewCreatureServerRpc(int) with no argument bytes: the handler throws reading the int, before the RPC body runs.
     private static byte[] ShortRpc(NetworkManager manager) => Rpc(manager, 1944155956u, []);
+
+    // Each packet holds what fits in one transport packet, as NGO batches do. Several go in at once so the errors land
+    // inside LobbyGuard's one-second window.
+    private static void ErrorFlood(NetworkManager manager, ulong client)
+    {
+        byte[] rpc = ShortRpc(manager);
+        int perPacket = 1300 / rpc.Length;
+        for (int i = 0; i < 6 && manager.ConnectedClients.ContainsKey(client); i++)
+        {
+            Receive(manager, client, Batch((ushort)perPacket, Repeat(rpc, perPacket)));
+        }
+    }
 
     private static byte[] MissingObjectRpc(NetworkManager manager) => RpcTo(manager, 0x7FFFFFF0, 1);
 
