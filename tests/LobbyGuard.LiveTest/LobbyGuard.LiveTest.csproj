@@ -11,5 +11,6 @@
 
   <ItemGroup>
     <Publicize Include="Unity.Netcode.Runtime" />
+    <Publicize Include="DissonanceVoip" />
   </ItemGroup>
 </Project>

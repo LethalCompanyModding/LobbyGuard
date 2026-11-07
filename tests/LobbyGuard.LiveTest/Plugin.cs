@@ -130,17 +130,37 @@ public class Plugin : BaseUnityPlugin
             }
             int seen = lobbyGuardLines.Count;
             NetworkManager manager = NetworkManager.Singleton;
-            c.Inject(manager, id);
-            yield return runner.StartCoroutine(Until(() => !manager.ConnectedClients.ContainsKey(id), KickWait));
+            string? error = null;
+            try
+            {
+                c.Inject(manager, id);
+            }
+            catch (Exception e)
+            {
+                error = $"{e.GetType().Name}: {e.Message}";
+            }
+            if (c.Kind == Kind.Direct)
+            {
+                string? problem = error ?? c.Verify?.Invoke(lobbyGuardLines.Skip(seen).ToList());
+                results.Add((c.Name, problem == null, problem ?? "ok"));
+                Log.LogInfo($"LIVETEST {c.Name} {(problem == null ? "PASS" : "FAIL")} {problem ?? "ok"}");
+                continue;
+            }
+            bool kicks = c.Kind == Kind.Kick;
+            yield return runner.StartCoroutine(Until(() => kicks ? !manager.ConnectedClients.ContainsKey(id) : lobbyGuardLines.Skip(seen).Any(l => l.Contains(c.Reason)), KickWait));
             bool gone = !manager.ConnectedClients.ContainsKey(id);
             string? line = lobbyGuardLines.Skip(seen).FirstOrDefault(l => l.StartsWith("Disconnected ") && l.Contains(c.Reason));
-            bool pass = gone && line != null;
-            string detail = line ?? (gone ? $"client left but LobbyGuard logged: {string.Join(" | ", lobbyGuardLines.Skip(seen))}" : "client was not disconnected");
+            bool pass = line != null && gone == kicks;
+            string detail = line ?? $"LobbyGuard logged: {string.Join(" | ", lobbyGuardLines.Skip(seen))}";
+            if (error != null)
+            {
+                detail += $" (injection threw {error})";
+            }
             results.Add((c.Name, pass, detail));
             Log.LogInfo($"LIVETEST {c.Name} {(pass ? "PASS" : "FAIL")} {detail}");
-            if (!gone)
+            if (!kicks || !gone)
             {
-                break;
+                continue;
             }
             Cooldowns.Clear();
             yield return runner.StartCoroutine(Until(() => Remote() is ulong next && next != id, RejoinWait));
@@ -186,13 +206,27 @@ public class Plugin : BaseUnityPlugin
     }
 }
 
-internal sealed class Case(string Name, string Reason, Action<NetworkManager, ulong> Inject)
+internal enum Kind
+{
+    // The client is disconnected and has to rejoin.
+    Kick,
+    // The host logs the kick of a stand-in client, and the real one stays.
+    Fake,
+    // The check runs in the host's own code and Verify judges the result.
+    Direct,
+}
+
+internal sealed class Case(string Name, string Reason, Action<NetworkManager, ulong> Inject, Kind Kind = Kind.Kick, Func<List<string>, string?>? Verify = null)
 {
     public string Name { get; } = Name;
 
     public string Reason { get; } = Reason;
 
     public Action<NetworkManager, ulong> Inject { get; } = Inject;
+
+    public Kind Kind { get; } = Kind;
+
+    public Func<List<string>, string?>? Verify { get; } = Verify;
 }
 
 internal static class Cases
@@ -213,6 +247,8 @@ internal static class Cases
         new("second-synchronize-complete", "finished joining a second time", (m, c) => Receive(m, c, Batch(1, Message(Type<SceneEventMessage>(m), [8])))),
         new("client-rpc-as-server-rpc", "a ClientRpc only the host can call", (m, c) => Receive(m, c, Batch(1, Rpc(m, 1568596901u, [1])))),
         new("rpc-string-longer-than-message", "array or string longer than its message", (m, c) => Receive(m, c, Batch(1, Rpc(m, 2787681914u, [1, 0xF0, 0xFF, 0xFF, 0x7F])))),
+        new("too-many-early-messages", "too many messages before being accepted", (m, c) => AsPending(m, 9001, Batch(33, Repeat(Message(Type<SceneEventMessage>(m), []), 33))), Kind.Fake),
+        new("nested-serializer-length", "", (m, c) => NestedLength(), Kind.Direct, _ => nested),
         new("message-flood", "too many packets or messages", (m, c) => Receive(m, c, Batch(20001, Repeat(Message(Type<SceneEventMessage>(m), []), 20001)))),
         new("packet-flood", "too many packets or messages", (m, c) =>
         {
@@ -221,7 +257,66 @@ internal static class Cases
                 Receive(m, c, Batch(0, []));
             }
         }),
+        ..VoiceCases.All(),
+        new("error-flood", "too many errors from their messages", (m, c) => Receive(m, c, Batch(150, Repeat(UnknownRpc(m), 150)))),
+        new("deferred-flood", "too many messages for objects that don't exist", (m, c) => Receive(m, c, Batch(600, Repeat(MissingObjectRpc(m), 600)))),
+        new("lan-has-no-cooldown", "", (m, c) => { }, Kind.Direct, lines => lines.Any(l => l.Contains("rejoin for")) ? "LobbyGuard set a cooldown for a client with no SteamID" : null),
     ];
+
+    private static string? nested;
+
+    // A client that has not been accepted yet, which no real one still is by the time the test can send anything.
+    private static void AsPending(NetworkManager manager, ulong id, byte[] payload)
+    {
+        NetworkConnectionManager connections = manager.ConnectionManager;
+        connections.m_PendingClients[id] = new PendingClient { ClientId = id, ConnectionState = PendingClient.State.PendingConnection };
+        connections.TransportIdToClientIdMap[id] = id;
+        connections.ClientIdToTransportIdMap[id] = id;
+        try
+        {
+            ArraySegment<byte> data = new(payload);
+            connections.DataEventHandler(id, ref data, Time.realtimeSinceStartup);
+        }
+        finally
+        {
+            connections.m_PendingClients.Remove(id);
+            connections.TransportIdToClientIdMap.Remove(id);
+            connections.ClientIdToTransportIdMap.Remove(id);
+        }
+    }
+
+    // No vanilla RPC takes a length-bearing INetworkSerializable (SerializedList is the only one, and nothing sends it), so
+    // this reads one the way an RPC would: a message that claims far more ulongs than it holds.
+    private static unsafe void NestedLength()
+    {
+        using FastBufferWriter writer = new(16, Allocator.Temp);
+        writer.WriteValueSafe(0x10000000);
+        FastBufferReader reader = new(writer, Allocator.Temp);
+        try
+        {
+            BufferSerializerReader inner = new(reader);
+            BufferSerializer<BufferSerializerReader> serializer = new(inner);
+            SerializedList list = default;
+            ((INetworkSerializable)list).NetworkSerialize(serializer);
+            nested = "the read went through";
+        }
+        catch (OverflowException e) when (e.Message == "array or string longer than its message")
+        {
+            nested = null;
+        }
+        catch (Exception e)
+        {
+            nested = $"NGO failed on its own: {e.GetType().Name}: {e.Message}";
+        }
+        finally
+        {
+            reader.Dispose();
+        }
+    }
+
+    private static byte[] UnknownRpc(NetworkManager manager) => RpcTo(manager, HUDManager.Instance.NetworkObjectId, 0xFFFFFFFEu);
+
+    private static byte[] MissingObjectRpc(NetworkManager manager) => RpcTo(manager, 0x7FFFFFF0, 1);
 
     // Hands a payload to the host's receive path under the client's own transport id, as NGO does for real data.
     public static void Receive(NetworkManager manager, ulong client, byte[] payload)
@@ -247,14 +342,18 @@ internal static class Cases
     private static byte[] Repeat(byte[] message, int times) => Enumerable.Range(0, times).SelectMany(_ => message).ToArray();
 
     // A ServerRpc message the way NGO writes one, for a registered method of the object's first behaviour.
-    private static byte[] Rpc(NetworkManager manager, uint method, byte[] arguments)
+    private static byte[] Rpc(NetworkManager manager, uint method, byte[] arguments) =>
+        RpcTo(manager, HUDManager.Instance.NetworkObjectId, method, arguments);
+
+    private static byte[] RpcTo(NetworkManager manager, ulong objectId, uint method, byte[]? arguments = null)
     {
+        arguments ??= [];
         HUDManager hud = HUDManager.Instance;
         using FastBufferWriter body = new(Math.Max(arguments.Length, 1), Allocator.Temp);
         body.WriteBytes(arguments);
         ServerRpcMessage rpc = new()
         {
-            Metadata = new RpcMetadata { NetworkObjectId = hud.NetworkObjectId, NetworkBehaviourId = hud.NetworkBehaviourId, NetworkRpcMethodId = method },
+            Metadata = new RpcMetadata { NetworkObjectId = objectId, NetworkBehaviourId = hud.NetworkBehaviourId, NetworkRpcMethodId = method },
             WriteBuffer = body,
         };
         using FastBufferWriter writer = new(arguments.Length + 64, Allocator.Temp);
