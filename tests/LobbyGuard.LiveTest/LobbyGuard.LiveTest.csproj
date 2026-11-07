@@ -10,6 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="../../src/LobbyGuard/RpcRules.cs" Link="RpcRules.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Publicize Include="Unity.Netcode.Runtime" />
     <Publicize Include="DissonanceVoip" />
   </ItemGroup>

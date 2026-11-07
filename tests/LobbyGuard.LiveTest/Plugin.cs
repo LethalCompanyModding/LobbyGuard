@@ -24,6 +24,7 @@ public class Plugin : BaseUnityPlugin
     private const float RejoinWait = 120;
     private const float ShortWait = 20;
     private const float SettleSeconds = 12;
+    private const float VanillaWait = 8;
 
     internal static ManualLogSource Log { get; private set; } = null!;
 
@@ -176,6 +177,7 @@ public class Plugin : BaseUnityPlugin
             yield break;
         }
         List<(string Name, bool Pass, string Detail)> results = new();
+        int skippedCases = 0;
         yield return runner.StartCoroutine(Until(() => Remote() != null, 600));
         if (Remote() == null)
         {
@@ -185,7 +187,17 @@ public class Plugin : BaseUnityPlugin
         yield return new WaitForSeconds(SettleSeconds * 2);
         float joinWait = RejoinWait;
         bool settled = true;
-        foreach (Case c in Cases.All)
+        List<Case> cases = Cases.All.ToList();
+        try
+        {
+            cases.AddRange(RpcCases.Build());
+        }
+        catch (Exception e)
+        {
+            results.Add(("rpc-cases", false, $"building them threw {e.GetType().Name}: {e.Message}"));
+            Log.LogWarning($"LIVETEST rpc-cases FAIL building them threw {e.GetType().Name}: {e.Message}");
+        }
+        foreach (Case c in cases)
         {
             // The previous client has to be gone and the next one in, or an injected payload would hit the wrong one.
             yield return runner.StartCoroutine(Until(() => RemoteCount() == 1, joinWait));
@@ -210,6 +222,12 @@ public class Plugin : BaseUnityPlugin
             {
                 c.Inject(manager, id);
             }
+            catch (CaseSkipped skipped)
+            {
+                Log.LogInfo($"LIVETEST {c.Name} SKIP {skipped.Message}");
+                skippedCases++;
+                continue;
+            }
             catch (Exception e)
             {
                 error = $"{e.GetType().Name}: {e.Message}";
@@ -221,10 +239,23 @@ public class Plugin : BaseUnityPlugin
                 Log.LogInfo($"LIVETEST {c.Name} {(problem == null ? "PASS" : "FAIL")} {problem ?? "ok"}");
                 continue;
             }
+            if (c.Kind == Kind.Vanilla)
+            {
+                yield return new WaitForSeconds(VanillaWait);
+                string? trouble = lobbyGuardLines.Skip(seen).FirstOrDefault(l => l.StartsWith("Disconnected ") || l.StartsWith("Dropped "));
+                bool kept = manager.ConnectedClients.ContainsKey(id);
+                bool ok = trouble == null && kept && error == null;
+                string what = ok ? "ok" : trouble ?? (kept ? error ?? "" : "the client was disconnected");
+                results.Add((c.Name, ok, what));
+                Log.LogInfo($"LIVETEST {c.Name} {(ok ? "PASS" : "FAIL")} {what}");
+                continue;
+            }
             bool kicks = c.Kind == Kind.Kick;
+            string prefix = c.Kind == Kind.Drop ? "Dropped " : "Disconnected ";
             yield return runner.StartCoroutine(Until(() => kicks ? !manager.ConnectedClients.ContainsKey(id) : lobbyGuardLines.Skip(seen).Any(l => l.Contains(c.Reason)), KickWait));
+            c.Cleanup?.Invoke();
             bool gone = !manager.ConnectedClients.ContainsKey(id);
-            string? line = lobbyGuardLines.Skip(seen).FirstOrDefault(l => l.StartsWith("Disconnected ") && l.Contains(c.Reason));
+            string? line = lobbyGuardLines.Skip(seen).FirstOrDefault(l => l.StartsWith(prefix) && l.Contains(c.Reason));
             bool pass = line != null && gone == kicks;
             string detail = line ?? $"LobbyGuard logged: {string.Join(" | ", lobbyGuardLines.Skip(seen))}";
             if (error != null)
@@ -236,8 +267,8 @@ public class Plugin : BaseUnityPlugin
             settled = !(kicks && gone);
             Cooldowns.Clear();
         }
-        int failed = results.Count(r => !r.Pass) + (results.Count < Cases.All.Count ? Cases.All.Count - results.Count : 0);
-        Log.LogInfo($"LIVETEST summary {results.Count(r => r.Pass)} PASS {failed} FAIL of {Cases.All.Count}");
+        int failed = results.Count(r => !r.Pass) + (results.Count + skippedCases < cases.Count ? cases.Count - results.Count - skippedCases : 0);
+        Log.LogInfo($"LIVETEST summary {results.Count(r => r.Pass)} PASS {failed} FAIL {skippedCases} SKIP of {cases.Count}");
     }
 
     private IEnumerator Until(Func<bool> done, float seconds)
@@ -279,9 +310,13 @@ internal enum Kind
     Fake,
     // The check runs in the host's own code and Verify judges the result.
     Direct,
+    // The host logs a dropped call and the client stays.
+    Drop,
+    // Normal play: nothing LobbyGuard logs, and the client stays.
+    Vanilla,
 }
 
-internal sealed class Case(string Name, string Reason, Action<NetworkManager, ulong> Inject, Kind Kind = Kind.Kick, Func<List<string>, string?>? Verify = null)
+internal sealed class Case(string Name, string Reason, Action<NetworkManager, ulong> Inject, Kind Kind = Kind.Kick, Func<List<string>, string?>? Verify = null, Action? Cleanup = null)
 {
     public string Name { get; } = Name;
 
@@ -292,6 +327,9 @@ internal sealed class Case(string Name, string Reason, Action<NetworkManager, ul
     public Kind Kind { get; } = Kind;
 
     public Func<List<string>, string?>? Verify { get; } = Verify;
+
+    // Runs once the host has had its turn to handle the call.
+    public Action? Cleanup { get; } = Cleanup;
 }
 
 internal static class Cases

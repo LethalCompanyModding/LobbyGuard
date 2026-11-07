@@ -64,6 +64,11 @@ export MORTAR_LIVE_CLIENT_PLUGINS="Mortar-DevLaunch-X.zip artifacts/bin/LobbyGua
 scripts/selftest.sh live-lobby
 ```
 
+The RPC cases (tests/LobbyGuard.LiveTest/Rpc.cs) come from the rule table, one per rule whose object is in the lobby. By
+default only the first rule of each disconnect kind runs, plus every dropped-call case; set
+`LOBBYGUARD_LIVETEST_ALL_RPCS=1` to run them all (one rejoin each), and raise `MORTAR_LIVE_TIMEOUT`. `rpc-vanilla-play`
+sends the calls a normal session makes and passes when LobbyGuard logs nothing.
+
 Use absolute paths. It is a LAN game, so there are no SteamIDs and the rejoin cooldown does not apply.
 
 To check the client's side of broken voice, leave LobbyGuard out of the host list and add
