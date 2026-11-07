@@ -25,7 +25,6 @@ internal static class RpcCases
     public static IReadOnlyList<Case> Build()
     {
         bool all = Environment.GetEnvironmentVariable("LOBBYGUARD_LIVETEST_ALL_RPCS") == "1";
-        string[] only = (Environment.GetEnvironmentVariable("LOBBYGUARD_LIVETEST_ONLY") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
         List<Case> cases = [];
         HashSet<string> kinds = [];
         foreach ((string key, RpcRule rule) in RpcRules.Table.OrderBy(t => t.Key, StringComparer.Ordinal))
@@ -44,7 +43,7 @@ internal static class RpcCases
             }
         }
         cases.Add(new Case("rpc-vanilla-play", "", Vanilla, Kind.Vanilla));
-        return only.Length == 0 ? cases : cases.Where(c => only.Any(o => c.Name.Contains(o, StringComparison.Ordinal))).ToList();
+        return cases;
     }
 
     private static IEnumerable<(string Kind, Case Case)> For(string key, RpcRule rule)
@@ -109,15 +108,25 @@ internal static class RpcCases
         // The call lands on the victim, so it has to be the player that moves, and not the sender's own.
         PlayerControllerB Victim(ulong sender) => StartOfRound.Instance.allPlayerScripts.First(p => p.isPlayerControlled && (int)p.playerClientId != Index(sender));
         PlayerControllerB? moved = null;
+        PlayerControllerB? hitter = null;
+        string Distance() => moved == null || hitter == null ? "?" : $"{Vector3.Distance(hitter.transform.position, moved.transform.position):0} m";
         return new Case(name, key, (m, c) =>
         {
             moved = Victim(c);
+            hitter = StartOfRound.Instance.allPlayerScripts[Index(c)];
             home = moved.transform.position;
+            // The game moves a player through its CharacterController every frame, which puts a bare transform move back
+            // before the queued call is handled.
+            moved.thisController.enabled = false;
             moved.transform.position = home + Vector3.right * FarAway;
+            Plugin.Log.LogInfo($"LIVETEST {name} victim {moved.playerClientId} at {moved.transform.position}, hitter {hitter.playerClientId} at {hitter.transform.position}, {Distance()} apart");
             Send(key, c, Zeros(key, 2, Index(c), rule.SelfPlayer, c), moved);
         }, Kind.Drop, null, () =>
         {
-            if (moved != null) moved.transform.position = home;
+            if (moved == null) return;
+            Plugin.Log.LogInfo($"LIVETEST {name} after the wait: {Distance()} apart");
+            moved.transform.position = home;
+            moved.thisController.enabled = true;
         });
     }
 

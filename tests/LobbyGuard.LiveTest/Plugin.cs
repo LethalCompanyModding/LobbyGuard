@@ -197,6 +197,11 @@ public class Plugin : BaseUnityPlugin
             results.Add(("rpc-cases", false, $"building them threw {e.GetType().Name}: {e.Message}"));
             Log.LogWarning($"LIVETEST rpc-cases FAIL building them threw {e.GetType().Name}: {e.Message}");
         }
+        string[] only = (Environment.GetEnvironmentVariable("LOBBYGUARD_LIVETEST_ONLY") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
+        if (only.Length > 0)
+        {
+            cases = cases.Where(c => only.Any(o => c.Name.Contains(o, StringComparison.Ordinal))).ToList();
+        }
         foreach (Case c in cases)
         {
             // The previous client has to be gone and the next one in, or an injected payload would hit the wrong one.
