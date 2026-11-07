@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- If one protection can't be installed, LobbyGuard logs a warning saying which and why, and the rest still load.
 - Claiming a huge list or text in any message, not just an RPC, no longer makes the host (or a player) set aside gigabytes
   of memory. The message is dropped, and a player who sent it to the host is disconnected. The checks now run in the
   game; before, a huge length in an RPC could still crash the host.

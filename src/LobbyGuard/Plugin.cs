@@ -73,21 +73,24 @@ public class Plugin : BaseUnityPlugin
         logPeakRates = Config.Bind("Debug", "LogPeakRates", false,
             "Log each player's busiest second so far, in packets and messages, to set the flood limits from real lobbies.");
         const BindingFlags any = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
-        hook = new Hook(typeof(NetworkConnectionManager).GetMethod(nameof(NetworkConnectionManager.DataEventHandler), any),
-            typeof(Plugin).GetMethod(nameof(OnData), any));
-        messageHook = new Hook(typeof(NetworkMessageManager).GetMethod(nameof(NetworkMessageManager.HandleMessage), any),
-            typeof(Plugin).GetMethod(nameof(OnMessage), any));
-        deferHook = new Hook(typeof(DeferredMessageManager).GetMethod(nameof(DeferredMessageManager.DeferMessage), any),
-            typeof(Plugin).GetMethod(nameof(OnDefer), any));
-        disconnectHook = new Hook(typeof(NetworkConnectionManager).GetMethod(nameof(NetworkConnectionManager.OnClientDisconnectFromServer), any),
-            typeof(Plugin).GetMethod(nameof(OnClientGone), any));
-        Application.logMessageReceived += OnLog;
-        Rpcs.Hook();
-        Lengths.HookAll();
-        Approval.Hook();
-        Voice.Hook();
-        Playback.Hook();
-        Vanilla.Hook();
+        Guards.Install("flood and packet checks", () =>
+        {
+            hook = new Hook(typeof(NetworkConnectionManager).GetMethod(nameof(NetworkConnectionManager.DataEventHandler), any),
+                typeof(Plugin).GetMethod(nameof(OnData), any));
+            messageHook = new Hook(typeof(NetworkMessageManager).GetMethod(nameof(NetworkMessageManager.HandleMessage), any),
+                typeof(Plugin).GetMethod(nameof(OnMessage), any));
+            deferHook = new Hook(typeof(DeferredMessageManager).GetMethod(nameof(DeferredMessageManager.DeferMessage), any),
+                typeof(Plugin).GetMethod(nameof(OnDefer), any));
+            disconnectHook = new Hook(typeof(NetworkConnectionManager).GetMethod(nameof(NetworkConnectionManager.OnClientDisconnectFromServer), any),
+                typeof(Plugin).GetMethod(nameof(OnClientGone), any));
+            Application.logMessageReceived += OnLog;
+        }, Log.LogWarning);
+        Guards.Install("RPC checks", Rpcs.Hook, Log.LogWarning);
+        Guards.Install("length checks", Lengths.HookAll, Log.LogWarning);
+        Guards.Install("join checks", Approval.Hook, Log.LogWarning);
+        Guards.Install("voice checks", Voice.Hook, Log.LogWarning);
+        Guards.Install("playback checks", Playback.Hook, Log.LogWarning);
+        Guards.Install("vanilla fixes", Vanilla.Hook, Log.LogWarning);
         Log.LogInfo($"{MyPluginInfo.Name} {MyPluginInfo.Version} loaded");
     }
 
