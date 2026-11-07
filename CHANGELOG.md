@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A player LobbyGuard disconnects can't rejoin for a minute, and twice as long for each time it happens again in
+  the same lobby.
 - A `LogPeakRates` setting (off by default) logs each player's busiest second, in packets and messages.
 - The host now checks the voice each player sends before passing it on. Anyone who sends voice the game can't play,
   or voice under another player's name, gets disconnected.

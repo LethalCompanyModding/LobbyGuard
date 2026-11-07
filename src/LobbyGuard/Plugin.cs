@@ -226,6 +226,10 @@ public class Plugin : BaseUnityPlugin
     {
         ulong steamId = SteamIdOf(manager, clientId);
         Log.LogWarning($"Disconnected {(steamId != 0 ? $"Steam user {steamId}" : $"client {clientId}")}: {why}");
+        if (steamId != 0)
+        {
+            Approval.Kicked(steamId);
+        }
         manager.DisconnectClient(clientId);
     }
 
