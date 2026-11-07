@@ -3,7 +3,8 @@
 ## Unreleased
 
 - Claiming a huge list or text in any message, not just an RPC, no longer makes the host (or a player) set aside gigabytes
-  of memory. The message is dropped, and a player who sent it to the host is disconnected.
+  of memory. The message is dropped, and a player who sent it to the host is disconnected. The checks now run in the
+  game; before, a huge length in an RPC could still crash the host.
 - A player LobbyGuard disconnects can't rejoin for a minute, and twice as long for each time it happens again in
   the same lobby.
 - A `LogPeakRates` setting (off by default) logs each player's busiest second, in packets and messages.

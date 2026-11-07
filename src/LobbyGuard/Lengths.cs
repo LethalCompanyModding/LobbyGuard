@@ -168,12 +168,25 @@ internal static class Lengths
     private static bool References(Assembly assembly) =>
         assembly.GetReferencedAssemblies().Any(a => a.Name == typeof(NetworkBehaviour).Assembly.GetName().Name);
 
-    internal sealed class Hookable(MethodBase method, Dictionary<int, int> sizes)
+    // The element size of each length read's call, by metadata token and by name. A hook's copy of the method has new
+    // references without the original's tokens, so only the name finds them there.
+    internal sealed class Sizes
+    {
+        public Dictionary<int, int> ByToken { get; } = new();
+
+        public Dictionary<string, int> ByName { get; } = new();
+
+        public int Count => ByToken.Count;
+
+        public int? Find(MethodReference callee) =>
+            ByToken.TryGetValue(callee.MetadataToken.ToInt32(), out int size) || ByName.TryGetValue(callee.FullName, out size) ? size : null;
+    }
+
+    internal sealed class Hookable(MethodBase method, Sizes sizes)
     {
         public MethodBase Method { get; } = method;
 
-        // Element size by the metadata token of each length read's call.
-        public Dictionary<int, int> Sizes { get; } = sizes;
+        public Sizes Sizes { get; } = sizes;
     }
 
     private static Type Unref(Type type) => type.IsByRef ? type.GetElementType()! : type;
@@ -213,7 +226,8 @@ internal static class Lengths
             return null;
         }
         Type[]? methodArguments = target.IsGenericMethod ? target.GetGenericArguments() : null;
-        var sizes = new Dictionary<int, int>();
+        var sizes = new Sizes();
+        using ModuleDefinition scratch = ModuleDefinition.CreateModule("LobbyGuard.Names", ModuleKind.Dll);
         // A stray 0x28 byte that isn't a call just fails to resolve.
         for (int i = 0; i + 4 < il.Length; i++)
         {
@@ -222,15 +236,17 @@ internal static class Lengths
                 continue;
             }
             int token = BitConverter.ToInt32(il, i + 1);
-            if (sizes.ContainsKey(token))
+            if (sizes.ByToken.ContainsKey(token))
             {
                 continue;
             }
             try
             {
-                if (ElementSize(target.Module.ResolveMethod(token, null, methodArguments)) is int size)
+                MethodBase read = target.Module.ResolveMethod(token, null, methodArguments);
+                if (ElementSize(read) is int size)
                 {
-                    sizes[token] = size;
+                    sizes.ByToken[token] = size;
+                    sizes.ByName[scratch.ImportReference(read).FullName] = size;
                 }
             }
             catch (ArgumentException)
@@ -241,13 +257,13 @@ internal static class Lengths
     }
 
     // The reads are calls on a reader parameter, so the check slots in right before the call without touching the stack.
-    internal static void Guard(ILContext il, Dictionary<int, int> sizes)
+    internal static void Guard(ILContext il, Sizes sizes)
     {
         var checks = new List<(Instruction Call, ParameterDefinition Reader, int Size)>();
         for (int i = 0; i < il.Instrs.Count; i++)
         {
             Instruction call = il.Instrs[i];
-            if (call.OpCode == OpCodes.Call && call.Operand is MethodReference callee && sizes.TryGetValue(callee.MetadataToken.ToInt32(), out int size) &&
+            if (call.OpCode == OpCodes.Call && call.Operand is MethodReference callee && sizes.Find(callee) is int size &&
                 Receiver(il, i, callee) is { } reader)
             {
                 checks.Add((call, reader, size));

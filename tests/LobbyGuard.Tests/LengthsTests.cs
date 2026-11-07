@@ -137,6 +137,20 @@ public sealed class LengthsTests
         Assert.Equal(["CheckSerializer", "CheckSerializer"], Guarded(nameof(Reads.Serialize)));
     }
 
+    // What a hook gets at run time: MonoMod's copy of the method, whose references carry no metadata tokens.
+    [Fact]
+    public void ReadsInAHooksCopyAreChecked()
+    {
+        foreach (string name in new[] { nameof(Reads.ByValue), nameof(Reads.Handler) })
+        {
+            MethodInfo method = typeof(Reads).GetMethod(name, BindingFlags.Static | BindingFlags.Public)!;
+            using var copy = new MonoMod.Utils.DynamicMethodDefinition(method);
+            var il = new ILContext(copy.Definition);
+            Lengths.Guard(il, Lengths.Plan(method)!.Sizes);
+            Assert.Single(il.Instrs.Select(i => i.Operand).OfType<MethodReference>(), m => m.DeclaringType.Name == nameof(Lengths));
+        }
+    }
+
     [Fact]
     public void OtherReadsAreLeftAlone()
     {
