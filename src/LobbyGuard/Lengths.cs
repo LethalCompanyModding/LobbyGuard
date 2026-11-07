@@ -26,15 +26,23 @@ internal static class Lengths
     private static readonly MethodInfo checkMessage = typeof(Lengths).GetMethod(nameof(CheckMessage), Statics);
     private static readonly MethodInfo checkSerializer = typeof(Lengths).GetMethod(nameof(CheckSerializer), Statics);
 
+    // Runs in Awake before the other guards go in, so nothing here may throw.
     public static void HookAll()
     {
-        var watch = Stopwatch.StartNew();
-        AppDomain.CurrentDomain.AssemblyLoad += (_, e) => Hook(e.LoadedAssembly);
-        foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+        try
         {
-            Hook(assembly);
+            var watch = Stopwatch.StartNew();
+            AppDomain.CurrentDomain.AssemblyLoad += (_, e) => Hook(e.LoadedAssembly);
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Hook(assembly);
+            }
+            Plugin.Log.LogInfo($"Length checks in {hooks.Count} methods, found in {watch.ElapsedMilliseconds} ms");
         }
-        Plugin.Log.LogInfo($"Length checks in {hooks.Count} methods, found in {watch.ElapsedMilliseconds} ms");
+        catch (Exception e)
+        {
+            Plugin.Log.LogWarning($"Length checks are off: {e.Message}");
+        }
     }
 
     public static bool Fits(int count, int size, int remaining) => count >= 0 && (long)count * size <= remaining;
