@@ -46,9 +46,9 @@ public class Plugin : BaseUnityPlugin
         string[] args = Environment.GetCommandLineArgs();
         int join = Array.IndexOf(args, "--join");
         address = join >= 0 && join + 1 < args.Length ? args[join + 1] : null;
+        BepInEx.Logging.Logger.Listeners.Add(new Capture(lobbyGuardLines));
         if (args.Contains("--host"))
         {
-            BepInEx.Logging.Logger.Listeners.Add(new Capture(lobbyGuardLines));
             Log.LogInfo("LIVETEST ready host");
             runner.StartCoroutine(RunHost());
         }
@@ -57,6 +57,7 @@ public class Plugin : BaseUnityPlugin
             const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
             menuHook = new Hook(typeof(MenuManager).GetMethod(nameof(MenuManager.Start), hidden), (Action<Action<MenuManager>, MenuManager>)OnMenu);
             Log.LogInfo("LIVETEST ready client");
+            runner.StartCoroutine(WatchSilence());
         }
     }
 
@@ -110,8 +111,56 @@ public class Plugin : BaseUnityPlugin
         return manager is { IsServer: true } ? manager.ConnectedClientsIds.Where(id => id != manager.LocalClientId).Cast<ulong?>().FirstOrDefault() : null;
     }
 
+    // A client with LobbyGuard plays a broken voice frame from a host without it as silence and says so once per speaker.
+    private IEnumerator WatchSilence()
+    {
+        while (true)
+        {
+            string? line = lobbyGuardLines.FirstOrDefault(l => l.StartsWith("Muted a broken voice frame"));
+            if (line != null)
+            {
+                Log.LogInfo($"LIVETEST silence PASS {line}");
+                yield break;
+            }
+            yield return new WaitForSeconds(1);
+        }
+    }
+
+    private static bool HostHasLobbyGuard() =>
+        AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetType("LobbyGuard.Approval") != null);
+
+    // The host has no LobbyGuard, so it relays a broken voice frame untouched, and the client's log has to show silence.
+    private IEnumerator RunBareHost()
+    {
+        yield return runner.StartCoroutine(Until(() => Remote() != null, 600));
+        yield return new WaitForSeconds(SettleSeconds * 2);
+        NetworkManager manager = NetworkManager.Singleton;
+        if (Remote() is not ulong id)
+        {
+            Log.LogWarning("LIVETEST summary 0 PASS 1 FAIL: no client joined");
+            yield break;
+        }
+        string? error = null;
+        try
+        {
+            VoiceCases.BrokenFramesTo(manager, id);
+        }
+        catch (Exception e)
+        {
+            error = $"{e.GetType().Name}: {e.Message}";
+        }
+        Log.LogInfo(error == null ? "LIVETEST host sent broken voice frames to the client" : $"LIVETEST host-send FAIL {error}");
+        yield return new WaitForSeconds(20);
+        Log.LogInfo($"LIVETEST summary 0 PASS {(error == null ? 0 : 1)} FAIL of 0 (host without LobbyGuard; the client's LIVETEST silence line is the result)");
+    }
+
     private IEnumerator RunHost()
     {
+        if (!HostHasLobbyGuard())
+        {
+            yield return runner.StartCoroutine(RunBareHost());
+            yield break;
+        }
         List<(string Name, bool Pass, string Detail)> results = new();
         yield return runner.StartCoroutine(Until(() => Remote() != null, 600));
         if (Remote() == null)

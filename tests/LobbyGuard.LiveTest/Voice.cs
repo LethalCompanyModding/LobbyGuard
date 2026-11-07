@@ -36,6 +36,25 @@ internal static class VoiceCases
             Send(c, (server, info) => Relay(server, info, [info], Packet().WriteRemoveClient(server.SessionId, info.PlayerId).Written)));
     }
 
+    // Voice from the host's own player to the client with frames the decoder can't read, relayed the way the host relays
+    // anything. Run on a host without LobbyGuard, which passes them on.
+    public static void BrokenFramesTo(NetworkManager manager, ulong client)
+    {
+        NfgoServer server = Server;
+        if (!server._clients.TryFindClientByConnection(new NfgoConn(client), out ClientInfo<NfgoConn>? target) || target == null ||
+            !server._clients.TryFindClientByConnection(new NfgoConn(manager.LocalClientId), out ClientInfo<NfgoConn>? speaker) || speaker == null)
+        {
+            throw new InvalidOperationException("the host and the client have not both joined voice chat");
+        }
+        OpenChannel channel = new(ChannelType.Player, 1, new ChannelProperties(UnityEngine.Object.FindObjectOfType<DissonanceComms>()), false, target.PlayerId, "livetest");
+        byte[][] frames = [[0xF9, 1, 2, 3], new byte[1100]];
+        for (ushort i = 0; i < 60; i++)
+        {
+            ArraySegment<byte> voice = Packet().WriteVoiceData(server.SessionId, speaker.PlayerId, i, 1, new List<OpenChannel> { channel }, new ArraySegment<byte>(frames[i % 2])).Written;
+            server.NetworkReceivedPacket(new NfgoConn(manager.LocalClientId), Relay(server, speaker, [target], voice));
+        }
+    }
+
     private static PacketWriter Packet() => new(new byte[4096]);
 
     private static ReadOnlyCollection<string> Rooms() => new(new List<string>());

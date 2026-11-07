@@ -65,3 +65,7 @@ scripts/selftest.sh live-lobby
 ```
 
 Use absolute paths. It is a LAN game, so there are no SteamIDs and the rejoin cooldown does not apply.
+
+To check the client's side of broken voice, leave LobbyGuard out of the host list and add
+`MORTAR_LIVE_EXPECT_CLIENT='LIVETEST silence PASS'`: the host sends broken voice frames untouched, and the client
+(which has LobbyGuard) has to log that it muted them.
