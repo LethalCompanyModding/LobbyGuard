@@ -109,25 +109,47 @@ internal static class RpcCases
         PlayerControllerB Victim(ulong sender) => StartOfRound.Instance.allPlayerScripts.First(p => p.isPlayerControlled && (int)p.playerClientId != Index(sender));
         PlayerControllerB? moved = null;
         PlayerControllerB? hitter = null;
+        HoldAt? hold = null;
         string Distance() => moved == null || hitter == null ? "?" : $"{Vector3.Distance(hitter.transform.position, moved.transform.position):0} m";
         return new Case(name, key, (m, c) =>
         {
             moved = Victim(c);
             hitter = StartOfRound.Instance.allPlayerScripts[Index(c)];
             home = moved.transform.position;
-            // The game moves a player through its CharacterController every frame, which puts a bare transform move back
-            // before the queued call is handled.
+            // The game moves a player through its CharacterController and syncs its position every frame, which puts a
+            // bare transform move back before the queued call is handled, so the position is held each frame.
             moved.thisController.enabled = false;
-            moved.transform.position = home + Vector3.right * FarAway;
+            hold = moved.gameObject.AddComponent<HoldAt>();
+            hold.Set(moved.transform, hitter.transform, home + Vector3.right * FarAway, name);
             Plugin.Log.LogInfo($"LIVETEST {name} victim {moved.playerClientId} at {moved.transform.position}, hitter {hitter.playerClientId} at {hitter.transform.position}, {Distance()} apart");
             Send(key, c, Zeros(key, 2, Index(c), rule.SelfPlayer, c), moved);
         }, Kind.Drop, null, () =>
         {
             if (moved == null) return;
             Plugin.Log.LogInfo($"LIVETEST {name} after the wait: {Distance()} apart");
+            if (hold != null) UnityEngine.Object.Destroy(hold);
             moved.transform.position = home;
             moved.thisController.enabled = true;
         });
+    }
+
+    // Keeps a transform at a spot at the end of every frame and logs how far it was at the start of the next one, which
+    // is when queued network messages are handled.
+    private sealed class HoldAt : MonoBehaviour
+    {
+        private Transform? held, other;
+        private Vector3 spot;
+        private string label = "";
+
+        public void Set(Transform held, Transform other, Vector3 spot, string name)
+        {
+            (this.held, this.other, this.spot, label) = (held, other, spot, name);
+        }
+
+        private void Update() =>
+            Plugin.Log.LogInfo($"LIVETEST {label} frame start: {Vector3.Distance(other!.position, held!.position):0} m apart");
+
+        private void LateUpdate() => held!.position = spot;
     }
 
     // Normal play: buying an item at its price, a chat line, the ship lights, picking up and putting down an item the
