@@ -6,6 +6,8 @@ using Xunit;
 
 namespace LobbyGuard.Tests;
 
+// Limits is static, and a test that binds it changes what the others see.
+[Collection("Limits")]
 public sealed class RpcRulesTests
 {
     private const ulong Sender = 3;
@@ -212,5 +214,19 @@ public sealed class RpcRulesTests
                 Assert.Equal(rule.Purchase == Purchase.Items ? "Int32[]" : "Int32", TypeAt(rule.IdParam));
             }
         }
+    }
+
+    [Fact]
+    public void EnemySyncCallsAreCappedPerCallType()
+    {
+        CallRates rates = new();
+        Verdict last = Verdict.Allow;
+        for (int i = 0; i < RpcRules.EnemyRateMax; i++)
+        {
+            last = RpcRules.Judge("PumaAI.SyncStalkingFrozenRpc", RpcRules.EnemySync, CallFrom(), rates).Verdict;
+        }
+        Assert.Equal(Verdict.Allow, last);
+        Assert.Equal(Verdict.Drop, RpcRules.Judge("PumaAI.SyncStalkingFrozenRpc", RpcRules.EnemySync, CallFrom(), rates).Verdict);
+        Assert.Equal(Verdict.Allow, RpcRules.Judge("PumaAI.PingPumaAttentionRpc", RpcRules.EnemySync, CallFrom(), rates).Verdict);
     }
 }

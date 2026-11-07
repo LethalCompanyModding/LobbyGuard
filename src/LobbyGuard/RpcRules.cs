@@ -29,7 +29,8 @@ internal sealed class RpcRule
     public int OwnedArg = -1;
     // Furthest the sender's player may be from the object the call goes to, in metres. 0 is no limit.
     public float MaxDistance;
-    // At most RateMax calls in RateSeconds per sender. 0 is no limit.
+    // At most RateMax calls in RateSeconds per sender. 0 is no limit. The host's config for Group replaces both.
+    public RateGroup Group;
     public int RateMax;
     public float RateSeconds;
     // Inclusive limits for integer parameters.
@@ -37,6 +38,16 @@ internal sealed class RpcRule
     public Purchase Purchase;
     public int CreditsParam = -1;
     public int IdParam = -1;
+}
+
+internal enum RateGroup
+{
+    None,
+    Switch,
+    Chat,
+    Shop,
+    Vote,
+    Enemy,
 }
 
 internal readonly struct Bound
@@ -93,6 +104,14 @@ internal static partial class RpcRules
     internal const int ShopRateMax = 4;
     internal const float ShopRateSeconds = 5;
 
+    // The enemy-sync RPCs any client may call (animation, attention, state), which the game sends from its owner's Update.
+    // A frame rate of a few hundred is the most one enemy sends in a second, so this only stops floods.
+    internal const int EnemyRateMax = 300;
+    internal const float EnemyRateSeconds = 1;
+
+    // Applies to every such RPC without a rule of its own, each counted apart.
+    internal static readonly RpcRule EnemySync = new() { Group = RateGroup.Enemy, RateMax = EnemyRateMax, RateSeconds = EnemyRateSeconds };
+
     private static readonly Dictionary<string, RpcRule> table = Build();
 
     internal static IReadOnlyDictionary<string, RpcRule> Table => table;
@@ -106,7 +125,8 @@ internal static partial class RpcRules
         // The caller names their own player: every call site passes the local player.
         foreach (string key in new[]
         {
-            "GiantKiwiAI.PryOpenDoorServerRpc:0", "GiantKiwiAI.ScreechServerRpc:1", "GiantKiwiAI.PingBirdAttentionServerRpc:2",
+            "GiantKiwiAI.PryOpenDoorServerRpc:0", "GiantKiwiAI.ScreechServerRpc:1", "GiantKiwiAI.PingBirdAttentionServerRpc:2", "GiantKiwiAI.SyncWatchingThreatServerRpc:1",
+            "GiantKiwiAI.SpawnExplosionAtPlayerBodyServerRpc:2", "GiantKiwiAI.StartAttackingThreatServerRpc:1", "BeltBagItem.RemoveFromBagNonElevatorParentServerRpc:3",
             "FlowerSnakeEnemy.FSHitPlayerServerRpc:0", "FlowerSnakeEnemy.StopClingingServerRpc:0",
             "EntranceTeleport.TeleportPlayerServerRpc:0", "DepositItemsDesk.CheckAnimationGrabPlayerServerRpc:1",
             "SpikeRoofTrap.SpikeTrapSlamServerRpc:0", "CadaverGrowthAI.CoughSporesRpc:1", "CadaverGrowthAI.SyncBurstFromPlayerRpc:0",
@@ -172,7 +192,7 @@ internal static partial class RpcRules
         }
 
         // The one vote per player per day.
-        rules["TimeOfDay.SetShipLeaveEarlyServerRpc"] = new RpcRule { RateMax = VoteRateMax, RateSeconds = VoteRateSeconds };
+        rules["TimeOfDay.SetShipLeaveEarlyServerRpc"] = new RpcRule { Group = RateGroup.Vote, RateMax = VoteRateMax, RateSeconds = VoteRateSeconds };
 
         foreach (string key in new[]
         {
@@ -182,18 +202,18 @@ internal static partial class RpcRules
             "Turret.ToggleTurretServerRpc", "DoorLock.UnlockDoorServerRpc",
         })
         {
-            rules[key] = new RpcRule { RateMax = SwitchRateMax, RateSeconds = SwitchRateSeconds };
+            rules[key] = new RpcRule { Group = RateGroup.Switch, RateMax = SwitchRateMax, RateSeconds = SwitchRateSeconds };
         }
         foreach (string key in new[] { "HUDManager.AddPlayerChatMessageServerRpc", "HUDManager.AddTextMessageServerRpc", "HUDManager.UseSignalTranslatorServerRpc" })
         {
-            rules[key] = new RpcRule { RateMax = ChatRateMax, RateSeconds = ChatRateSeconds };
+            rules[key] = new RpcRule { Group = RateGroup.Chat, RateMax = ChatRateMax, RateSeconds = ChatRateSeconds };
         }
 
         // Credits: the client sends the total it thinks is left. A purchase takes exactly what it costs.
-        rules["Terminal.BuyItemsServerRpc"] = new RpcRule { Purchase = Purchase.Items, IdParam = 0, CreditsParam = 1, RateMax = ShopRateMax, RateSeconds = ShopRateSeconds };
-        rules["StartOfRound.BuyShipUnlockableServerRpc"] = new RpcRule { Purchase = Purchase.Unlockable, IdParam = 0, CreditsParam = 1, RateMax = ShopRateMax, RateSeconds = ShopRateSeconds };
-        rules["StartOfRound.ChangeLevelServerRpc"] = new RpcRule { Purchase = Purchase.Level, IdParam = 0, CreditsParam = 1, RateMax = ShopRateMax, RateSeconds = ShopRateSeconds };
-        rules["Terminal.BuyVehicleServerRpc"] = new RpcRule { Purchase = Purchase.Vehicle, IdParam = 0, CreditsParam = 1, RateMax = ShopRateMax, RateSeconds = ShopRateSeconds };
+        rules["Terminal.BuyItemsServerRpc"] = new RpcRule { Purchase = Purchase.Items, IdParam = 0, CreditsParam = 1, Group = RateGroup.Shop, RateMax = ShopRateMax, RateSeconds = ShopRateSeconds };
+        rules["StartOfRound.BuyShipUnlockableServerRpc"] = new RpcRule { Purchase = Purchase.Unlockable, IdParam = 0, CreditsParam = 1, Group = RateGroup.Shop, RateMax = ShopRateMax, RateSeconds = ShopRateSeconds };
+        rules["StartOfRound.ChangeLevelServerRpc"] = new RpcRule { Purchase = Purchase.Level, IdParam = 0, CreditsParam = 1, Group = RateGroup.Shop, RateMax = ShopRateMax, RateSeconds = ShopRateSeconds };
+        rules["Terminal.BuyVehicleServerRpc"] = new RpcRule { Purchase = Purchase.Vehicle, IdParam = 0, CreditsParam = 1, Group = RateGroup.Shop, RateMax = ShopRateMax, RateSeconds = ShopRateSeconds };
         return rules;
     }
 }

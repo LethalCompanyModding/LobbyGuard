@@ -188,7 +188,7 @@ internal static class RpcContext
             }
             int worth = terminal.buyableItemsList[id].creditsWorth;
             cap += worth;
-            floor += (int)(worth * RpcRules.MinPriceFraction);
+            floor += (int)(worth * Limits.MinPriceFraction);
         }
         call.PriceCap = cap;
         call.PriceFloor = floor;

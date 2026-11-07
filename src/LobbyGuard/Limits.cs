@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BepInEx.Configuration;
 
 namespace LobbyGuard;
@@ -31,8 +32,44 @@ internal static class Limits
 
     internal static int MaxWaitSeconds => maxWait?.Value ?? 31536000;
 
+    private static readonly Dictionary<RateGroup, (ConfigEntry<int> Max, ConfigEntry<int> Seconds)> rpcRates = new();
+    private static ConfigEntry<int>? kickMultiplier, reach, discount;
+
+    // How many times a call's cap a player may reach before it's a script, not lag, and they're disconnected.
+    internal static int RateKickMultiplier => kickMultiplier?.Value ?? RpcRules.RateKickFactor;
+
+    // Furthest a player may hit someone from, in metres.
+    internal static float HitReach => reach?.Value ?? RpcRules.HitReach;
+
+    // The cheapest a sale makes an item, as a fraction of its price.
+    internal static float MinPriceFraction => 1 - (discount?.Value ?? 90) / 100f;
+
+    // The cap on a rule's calls and the window it's counted over. Without a config for its group, the rule's own.
+    internal static (int Max, float Seconds) RpcRate(RpcRule rule) =>
+        rpcRates.TryGetValue(rule.Group, out (ConfigEntry<int> Max, ConfigEntry<int> Seconds) entry)
+            ? (entry.Max.Value, entry.Seconds.Value)
+            : (rule.RateMax, rule.RateSeconds);
+
+    private static void BindRate(ConfigFile config, RateGroup group, string name, int max, int seconds, string what)
+    {
+        rpcRates[group] = (
+            Int(config, "Rpc rules", $"{name}Calls", max, 1, 100000, $"How many {what} a player may make in the window before the host ignores more."),
+            Int(config, "Rpc rules", $"{name}WindowSeconds", seconds, 1, 86400, $"The window, in seconds, for {name}Calls."));
+    }
+
     internal static void Bind(ConfigFile config)
     {
+        BindRate(config, RateGroup.Switch, "Switch", RpcRules.SwitchRateMax, (int)RpcRules.SwitchRateSeconds, "ship switch, door, lever and trap calls");
+        BindRate(config, RateGroup.Chat, "Chat", RpcRules.ChatRateMax, (int)RpcRules.ChatRateSeconds, "chat and text calls");
+        BindRate(config, RateGroup.Shop, "Shop", RpcRules.ShopRateMax, (int)RpcRules.ShopRateSeconds, "terminal purchase calls");
+        BindRate(config, RateGroup.Vote, "ShipVote", RpcRules.VoteRateMax, (int)RpcRules.VoteRateSeconds, "votes to send the ship away early");
+        BindRate(config, RateGroup.Enemy, "EnemySync", RpcRules.EnemyRateMax, (int)RpcRules.EnemyRateSeconds, "enemy animation and state calls, per call type");
+        kickMultiplier = Int(config, "Rpc rules", "DisconnectAtMultiple", RpcRules.RateKickFactor, 2, 1000,
+            "A player who reaches this many times a call's cap is disconnected instead of ignored.");
+        reach = Int(config, "Rpc rules", "HitReachMetres", (int)RpcRules.HitReach, 5, 1000,
+            "Furthest a player may hit another from. The default leaves room for a shotgun and a second of lag.");
+        discount = Int(config, "Rpc rules", "MaxSalePercent", 90, 0, 100,
+            "The biggest sale on a shop item or vehicle. A purchase that takes less than that off is ignored.");
         errors = Int(config, "Limits", "MaxErrorsPerSecond", 100, 1, 10000,
             "Errors a player's messages may cause in a second before they're disconnected.");
         deferred = Int(config, "Limits", "MaxDeferredPerSecond", 500, 1, 100000,

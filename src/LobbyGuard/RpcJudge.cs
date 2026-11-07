@@ -119,20 +119,21 @@ internal static partial class RpcRules
         {
             return (Verdict.Drop, $"{key} on an object they don't own");
         }
-        if (rule.MaxDistance > 0 && call.Distance is { } far && far > rule.MaxDistance)
+        if (rule.MaxDistance > 0 && call.Distance is { } far && far > Limits.HitReach)
         {
             return (Verdict.Drop, $"{key} from {far:0} m away");
         }
         if (rule.RateMax > 0)
         {
-            int count = rates.Add(call.Sender, key, call.Now, rule.RateSeconds);
-            if (count > rule.RateMax * RateKickFactor)
+            (int max, float seconds) = Limits.RpcRate(rule);
+            int count = rates.Add(call.Sender, key, call.Now, seconds);
+            if (count > (long)max * Limits.RateKickMultiplier)
             {
-                return (Verdict.Kick, $"called {key} {count} times in {rule.RateSeconds:0.#} s");
+                return (Verdict.Kick, $"called {key} {count} times in {seconds:0.#} s");
             }
-            if (count > rule.RateMax)
+            if (count > max)
             {
-                return (Verdict.Drop, $"{key} too often, {count} times in {rule.RateSeconds:0.#} s");
+                return (Verdict.Drop, $"{key} too often, {count} times in {seconds:0.#} s");
             }
         }
         return (Verdict.Allow, "");

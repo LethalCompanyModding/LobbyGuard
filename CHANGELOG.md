@@ -6,6 +6,8 @@
   or use of an item someone else holds, selling or killing what the player doesn't own, a second vote to send the ship
   away, a purchase that takes the wrong amount of credits, and switches or chat faster than a person can use them.
   Acting as another player, negative credits, damage past 100 and calls the game never makes disconnect the sender.
+  Enemy animation and state calls are capped too, so a script can't flood them. The call caps, hit reach and sale
+  size are settings under "Rpc rules".
 - If one protection can't be installed, LobbyGuard logs a warning saying which and why, and the rest still load.
 - Claiming a huge list or text in any message, not just an RPC, no longer makes the host (or a player) set aside gigabytes
   of memory. The message is dropped, and a player who sent it to the host is disconnected. The checks now run in the

@@ -97,6 +97,10 @@ internal static class Rpcs
         Plugin.Log.LogWarning($"Dropped a call from {(steamId != 0 ? $"Steam user {steamId}" : $"client {clientId}")}: {why}");
     }
 
+    private static bool IsOpenEnemyRpc(MethodInfo rpc) =>
+        typeof(EnemyAI).IsAssignableFrom(rpc.DeclaringType) &&
+        (rpc.GetCustomAttribute<ServerRpcAttribute>() is { RequireOwnership: false } || rpc.GetCustomAttribute<RpcAttribute>() is { RequireOwnership: false });
+
     // The ServerRpc a handler calls and its rule, if it has one.
     private static (string Key, MethodInfo Rpc, RpcRule Rule)? Find(MethodInfo handler)
     {
@@ -117,7 +121,8 @@ internal static class Rpcs
                 if (method is MethodInfo rpc && method.DeclaringType != null && (method.IsDefined(typeof(ServerRpcAttribute), false) || method.IsDefined(typeof(RpcAttribute), false)))
                 {
                     string key = $"{method.DeclaringType.Name}.{method.Name}";
-                    return RpcRules.For(key) is { } rule ? (key, rpc, rule) : null;
+                    RpcRule? rule = RpcRules.For(key) ?? (IsOpenEnemyRpc(rpc) ? RpcRules.EnemySync : null);
+                    return rule != null ? (key, rpc, rule) : null;
                 }
             }
             catch (Exception e) when (e is ArgumentException or TypeLoadException or System.IO.FileNotFoundException or System.IO.FileLoadException or MemberAccessException)
