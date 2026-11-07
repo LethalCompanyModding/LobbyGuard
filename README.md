@@ -4,7 +4,7 @@ Keeps bad players from crashing or freezing your lobby.
 
 - Who needs it: the host. Players can add it too, so broken voice from someone else plays as silence when the host
   doesn't have it.
-- Config: none.
+- Config: `BepInEx/config/` has the flood, early-message and rejoin-wait limits, each with its range. Changes apply at once.
 
 It checks what each player sends, voice chat included, before the game reads it. Anyone who sends something broken,
 or far more than the game ever would, gets disconnected. Players you kick stay kicked.

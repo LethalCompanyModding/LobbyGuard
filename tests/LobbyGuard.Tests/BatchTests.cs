@@ -121,7 +121,7 @@ public sealed class BatchTests
     {
         ArraySegment<byte> early = Message(ConnectRequest + 1, [1]);
         var client = new Client();
-        for (int i = 0; i < Batch.MaxEarlyMessages; i++)
+        for (int i = 0; i < Limits.MaxEarlyMessages; i++)
         {
             Assert.Null(Check(early, client));
         }
@@ -132,9 +132,9 @@ public sealed class BatchTests
     [Fact]
     public void LimitsConnectionData()
     {
-        byte[] body = ConnectionRequest(Batch.MaxConnectionData + 1);
-        Assert.Equal("bad connection request", Check(Message(ConnectRequest, [.. body, .. new byte[Batch.MaxConnectionData]])));
-        Assert.Null(Check(Message(ConnectRequest, [.. ConnectionRequest(Batch.MaxConnectionData), .. new byte[Batch.MaxConnectionData]])));
+        byte[] body = ConnectionRequest(Limits.MaxConnectionData + 1);
+        Assert.Equal("bad connection request", Check(Message(ConnectRequest, [.. body, .. new byte[Limits.MaxConnectionData]])));
+        Assert.Null(Check(Message(ConnectRequest, [.. ConnectionRequest(Limits.MaxConnectionData), .. new byte[Limits.MaxConnectionData]])));
     }
 
     [Fact]

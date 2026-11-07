@@ -46,4 +46,16 @@ public sealed class CooldownsTests
             Assert.True(cooldowns.Add(1, 0) > 0);
         }
     }
+
+    [Fact]
+    public void StopsGrowingAtTheLongestWait()
+    {
+        Cooldowns cooldowns = new();
+        double wait = 0;
+        for (int i = 0; i < 100; i++)
+        {
+            wait = cooldowns.Add(7, 0);
+        }
+        Assert.Equal(Limits.MaxWaitSeconds, wait);
+    }
 }

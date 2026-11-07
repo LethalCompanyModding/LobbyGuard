@@ -28,13 +28,6 @@ internal static class Batch
     private const ushort Magic = 0x1160;
     private const int HeaderSize = 16;
 
-    // A mod on a real client can send a few early. NGO drops them and logs each one.
-    public const int MaxEarlyMessages = 32;
-
-    // The game sends its version and SteamID, and logs whatever it gets.
-    public const int MaxConnectionData = 1024;
-
-    // NGO's SceneEventType values a client sends.
     private const byte LoadComplete = 6;
     private const byte UnloadComplete = 7;
     private const byte SynchronizeComplete = 8;
@@ -86,7 +79,7 @@ internal static class Batch
                         return "bad connection request";
                     }
                 }
-                else if (!client.Accepted && ++client.EarlyMessages > MaxEarlyMessages)
+                else if (!client.Accepted && ++client.EarlyMessages > Limits.MaxEarlyMessages)
                 {
                     return "too many messages before being accepted";
                 }
@@ -158,7 +151,7 @@ internal static class Batch
             return false;
         }
         int length = *(int*)(p + pos + 8);
-        return length >= 0 && length <= MaxConnectionData && length <= end - pos - 12;
+        return length >= 0 && length <= Limits.MaxConnectionData && length <= end - pos - 12;
     }
 
     // NGO's ByteUnpacker.ReadValueBitPacked for a uint: the low 3 bits of the first byte give the length, 1 to 5.

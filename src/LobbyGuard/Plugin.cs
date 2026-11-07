@@ -18,19 +18,6 @@ namespace LobbyGuard;
 [BepInProcess("Lethal Company.exe")]
 public class Plugin : BaseUnityPlugin
 {
-    // A player's messages shouldn't cause errors at all. This leaves room for a mod that's broken for them.
-    private const int MaxErrorsPerSecond = 100;
-
-    // A joining client's RPCs can wait a moment for their objects. NGO keeps a copy of each one, and clearing them out
-    // takes stack space for each object they name.
-    private const int MaxDeferredPerSecond = 500;
-
-    // Netcode sends a client's packets once per channel per frame, so this leaves room for a very high frame rate.
-    private const int MaxPacketsPerSecond = 2000;
-
-    // A packet can hold thousands of tiny messages, and NGO logs an error for each one it can't use.
-    private const int MaxMessagesPerSecond = 20000;
-
     internal static ManualLogSource Log { get; private set; } = null!;
 
     // Only the host sends these, but NGO runs them if a client does, because the host is a client too.
@@ -70,6 +57,7 @@ public class Plugin : BaseUnityPlugin
     private void Awake()
     {
         Log = Logger;
+        Limits.Bind(Config);
         logPeakRates = Config.Bind("Debug", "LogPeakRates", false,
             "Log each player's busiest second so far, in packets and messages, to set the flood limits from real lobbies.");
         const BindingFlags any = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
@@ -147,7 +135,7 @@ public class Plugin : BaseUnityPlugin
         {
             handling = outer;
         }
-        if (lastError != null && Over(errors, senderId, MaxErrorsPerSecond) && self.m_Owner is NetworkManager { IsServer: true } host)
+        if (lastError != null && Over(errors, senderId, Limits.MaxErrorsPerSecond) && self.m_Owner is NetworkManager { IsServer: true } host)
         {
             errors.Remove(senderId);
             Kick(host, senderId, $"too many errors from their messages, the last: {lastError}");
@@ -174,7 +162,7 @@ public class Plugin : BaseUnityPlugin
     private static void OnDefer(DeferMessage orig, DeferredMessageManager self, IDeferredNetworkMessageManager.TriggerType trigger, ulong key, FastBufferReader reader, ref NetworkContext context)
     {
         if (context.SenderId != NetworkManager.ServerClientId && context.SystemOwner is NetworkManager { IsServer: true } manager &&
-            Over(deferred, context.SenderId, MaxDeferredPerSecond))
+            Over(deferred, context.SenderId, Limits.MaxDeferredPerSecond))
         {
             deferred.Remove(context.SenderId);
             Kick(manager, context.SenderId, "too many messages for objects that don't exist");
@@ -263,6 +251,6 @@ public class Plugin : BaseUnityPlugin
         {
             Log.LogInfo($"Busiest second from transport {transportId} so far: {busiest.Packets} packets, {busiest.Messages} messages");
         }
-        return packets > MaxPacketsPerSecond || total > MaxMessagesPerSecond;
+        return packets > Limits.MaxPacketsPerSecond || total > Limits.MaxMessagesPerSecond;
     }
 }
