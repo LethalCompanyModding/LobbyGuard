@@ -25,6 +25,7 @@ internal static class RpcCases
     public static IReadOnlyList<Case> Build()
     {
         bool all = Environment.GetEnvironmentVariable("LOBBYGUARD_LIVETEST_ALL_RPCS") == "1";
+        string[] only = (Environment.GetEnvironmentVariable("LOBBYGUARD_LIVETEST_ONLY") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
         List<Case> cases = [];
         HashSet<string> kinds = [];
         foreach ((string key, RpcRule rule) in RpcRules.Table.OrderBy(t => t.Key, StringComparer.Ordinal))
@@ -43,7 +44,7 @@ internal static class RpcCases
             }
         }
         cases.Add(new Case("rpc-vanilla-play", "", Vanilla, Kind.Vanilla));
-        return cases;
+        return only.Length == 0 ? cases : cases.Where(c => only.Any(o => c.Name.Contains(o, StringComparison.Ordinal))).ToList();
     }
 
     private static IEnumerable<(string Kind, Case Case)> For(string key, RpcRule rule)
@@ -105,13 +106,19 @@ internal static class RpcCases
     private static Case FarCase(string name, string key, RpcRule rule)
     {
         Vector3 home = default;
-        PlayerControllerB Victim() => StartOfRound.Instance.allPlayerScripts[0];
+        // The call lands on the victim, so it has to be the player that moves, and not the sender's own.
+        PlayerControllerB Victim(ulong sender) => StartOfRound.Instance.allPlayerScripts.First(p => p.isPlayerControlled && (int)p.playerClientId != Index(sender));
+        PlayerControllerB? moved = null;
         return new Case(name, key, (m, c) =>
         {
-            home = Victim().transform.position;
-            Victim().transform.position = home + Vector3.right * FarAway;
-            Send(key, c, Zeros(key, 2, Index(c), rule.SelfPlayer, c));
-        }, Kind.Drop, null, () => Victim().transform.position = home);
+            moved = Victim(c);
+            home = moved.transform.position;
+            moved.transform.position = home + Vector3.right * FarAway;
+            Send(key, c, Zeros(key, 2, Index(c), rule.SelfPlayer, c), moved);
+        }, Kind.Drop, null, () =>
+        {
+            if (moved != null) moved.transform.position = home;
+        });
     }
 
     // Normal play: buying an item at its price, a chat line, the ship lights, picking up and putting down an item the
@@ -122,6 +129,8 @@ internal static class RpcCases
         int price = terminal.buyableItemsList[0].creditsWorth;
         int sale = terminal.itemSalesPercentages[0];
         int cost = (int)(price * (sale / 100f));
+        // A vanilla client only orders what the lobby's credits cover.
+        terminal.groupCredits = Math.Max(terminal.groupCredits, cost);
         GrabbableObject held = Item(manager);
         held.NetworkObject.ChangeOwnership(client);
         Send("Terminal.BuyItemsServerRpc", client, [.. Present(true), .. Ints(1, 0), .. Packed(terminal.groupCredits - cost), .. Packed(0)]);
@@ -236,10 +245,10 @@ internal static class RpcCases
         return type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).First(m => m.Name == part[1]);
     }
 
-    private static void Send(string key, ulong client, byte[] arguments, GrabbableObject? on = null) =>
+    private static void Send(string key, ulong client, byte[] arguments, NetworkBehaviour? on = null) =>
         Cases.Receive(NetworkManager.Singleton, client, Cases.Batch(1, Message(key, arguments, on)));
 
-    private static byte[] Message(string key, byte[] arguments, GrabbableObject? on = null)
+    private static byte[] Message(string key, byte[] arguments, NetworkBehaviour? on = null)
     {
         NetworkManager manager = NetworkManager.Singleton;
         NetworkBehaviour behaviour = on ?? Target(key) ?? (Type(key) == typeof(GrabbableObject) ? Item(manager) : throw new CaseSkipped($"no {key.Split('.')[0]} in the lobby"));
