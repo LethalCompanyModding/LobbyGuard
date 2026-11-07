@@ -315,7 +315,7 @@ internal static class Cases
             }
         }),
         ..VoiceCases.All(),
-        new("error-flood", "too many errors from their messages", (m, c) => Receive(m, c, Batch(150, Repeat(UnknownRpc(m), 150)))),
+        new("error-flood", "too many errors from their messages", (m, c) => Receive(m, c, Batch(150, Repeat(ShortRpc(m), 150)))),
         new("deferred-flood", "too many messages for objects that don't exist", (m, c) => Receive(m, c, Batch(600, Repeat(MissingObjectRpc(m), 600)))),
         new("lan-has-no-cooldown", "", (m, c) => { }, Kind.Direct, lines => lines.Any(l => l.Contains("rejoin for")) ? "LobbyGuard set a cooldown for a client with no SteamID" : null),
     ];
@@ -371,7 +371,8 @@ internal static class Cases
         }
     }
 
-    private static byte[] UnknownRpc(NetworkManager manager) => RpcTo(manager, HUDManager.Instance.NetworkObjectId, 0xFFFFFFFEu);
+    // HUDManager.ScanNewCreatureServerRpc(int) with no argument bytes: the handler throws reading the int, before the RPC body runs.
+    private static byte[] ShortRpc(NetworkManager manager) => Rpc(manager, 1944155956u, []);
 
     private static byte[] MissingObjectRpc(NetworkManager manager) => RpcTo(manager, 0x7FFFFFF0, 1);
 
