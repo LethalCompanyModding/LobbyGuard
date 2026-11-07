@@ -22,6 +22,7 @@ public class Plugin : BaseUnityPlugin
 {
     private const float KickWait = 10;
     private const float RejoinWait = 120;
+    private const float ShortWait = 20;
     private const float SettleSeconds = 12;
 
     internal static ManualLogSource Log { get; private set; } = null!;
@@ -104,6 +105,12 @@ public class Plugin : BaseUnityPlugin
         Log.LogWarning("LIVETEST client could not rejoin");
     }
 
+    private static int RemoteCount()
+    {
+        NetworkManager manager = NetworkManager.Singleton;
+        return manager is { IsServer: true } ? manager.ConnectedClientsIds.Count(id => id != manager.LocalClientId) : 0;
+    }
+
     private static ulong? Remote()
     {
         NetworkManager manager = NetworkManager.Singleton;
@@ -168,13 +175,25 @@ public class Plugin : BaseUnityPlugin
             yield break;
         }
         yield return new WaitForSeconds(SettleSeconds * 2);
+        float joinWait = RejoinWait;
+        bool settled = true;
         foreach (Case c in Cases.All)
         {
-            ulong? target = Remote();
-            if (target is not ulong id)
+            // The previous client has to be gone and the next one in, or an injected payload would hit the wrong one.
+            yield return runner.StartCoroutine(Until(() => RemoteCount() == 1, joinWait));
+            if (Remote() is not ulong id || RemoteCount() != 1)
             {
-                results.Add((c.Name, false, "no client to test"));
-                break;
+                string why = $"{RemoteCount()} clients connected besides the host, not 1";
+                results.Add((c.Name, false, why));
+                Log.LogWarning($"LIVETEST {c.Name} FAIL {why}");
+                joinWait = ShortWait;
+                settled = true;
+                continue;
+            }
+            joinWait = RejoinWait;
+            if (!settled)
+            {
+                yield return new WaitForSeconds(SettleSeconds);
             }
             int seen = lobbyGuardLines.Count;
             NetworkManager manager = NetworkManager.Singleton;
@@ -206,18 +225,8 @@ public class Plugin : BaseUnityPlugin
             }
             results.Add((c.Name, pass, detail));
             Log.LogInfo($"LIVETEST {c.Name} {(pass ? "PASS" : "FAIL")} {detail}");
-            if (!kicks || !gone)
-            {
-                continue;
-            }
+            settled = !(kicks && gone);
             Cooldowns.Clear();
-            yield return runner.StartCoroutine(Until(() => Remote() is ulong next && next != id, RejoinWait));
-            if (Remote() is not ulong again || again == id)
-            {
-                Log.LogWarning("LIVETEST client did not rejoin, stopping");
-                break;
-            }
-            yield return new WaitForSeconds(SettleSeconds);
         }
         int failed = results.Count(r => !r.Pass) + (results.Count < Cases.All.Count ? Cases.All.Count - results.Count : 0);
         Log.LogInfo($"LIVETEST summary {results.Count(r => r.Pass)} PASS {failed} FAIL of {Cases.All.Count}");
