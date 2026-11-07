@@ -51,7 +51,7 @@ public class Plugin : BaseUnityPlugin
     private static NetworkMessageManager? rulesFor;
 
     // Who sent the message being handled, for the errors it causes. 0 is the host.
-    private static ulong handling;
+    internal static ulong handling;
     private static string? lastError;
 
     private Hook? hook;
