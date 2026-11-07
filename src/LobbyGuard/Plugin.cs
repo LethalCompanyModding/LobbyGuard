@@ -148,6 +148,7 @@ public class Plugin : BaseUnityPlugin
         clients.Remove(clientId);
         errors.Remove(clientId);
         deferred.Remove(clientId);
+        Rpcs.Forget(clientId);
         orig(self, clientId);
     }
 

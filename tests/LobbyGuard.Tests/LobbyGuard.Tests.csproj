@@ -16,7 +16,7 @@
   <!-- The game references aren't copied next to the build, and a test that reads Netcode's types needs them. -->
   <Target Name="CopyNetcode" AfterTargets="Build">
     <ItemGroup>
-      <NetcodeFile Include="@(ReferencePath)" Condition="'%(Filename)' == 'Unity.Netcode.Runtime' Or '%(Filename)' == 'UnityEngine.CoreModule' Or '%(Filename)' == 'Unity.Collections'" />
+      <NetcodeFile Include="@(ReferencePath)" Condition="'%(Filename)' == 'Unity.Netcode.Runtime' Or '%(Filename)' == 'Assembly-CSharp' Or '%(Filename)' == 'UnityEngine.CoreModule' Or '%(Filename)' == 'Unity.Collections'" />
     </ItemGroup>
     <Copy SourceFiles="@(NetcodeFile)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
