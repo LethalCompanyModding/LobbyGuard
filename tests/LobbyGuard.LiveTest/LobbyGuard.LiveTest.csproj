@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Runs inside the game next to LobbyGuard to prove each kick fires. Never packaged or published. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>com.github.lethalcompanymodding.lobbyguard.livetest</AssemblyName>
+    <AssemblyTitle>LobbyGuard LiveTest</AssemblyTitle>
+    <RootNamespace>LobbyGuard.LiveTest</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Publicize Include="Unity.Netcode.Runtime" />
+  </ItemGroup>
+</Project>

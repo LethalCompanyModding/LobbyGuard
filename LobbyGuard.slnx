@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="src/LobbyGuard/LobbyGuard.csproj" />
+  <Project Path="tests/LobbyGuard.LiveTest/LobbyGuard.LiveTest.csproj" />
   <Project Path="tests/LobbyGuard.Tests/LobbyGuard.Tests.csproj" />
 </Solution>
