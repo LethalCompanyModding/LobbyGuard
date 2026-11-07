@@ -69,3 +69,12 @@ Use absolute paths. It is a LAN game, so there are no SteamIDs and the rejoin co
 To check the client's side of broken voice, leave LobbyGuard out of the host list and add
 `MORTAR_LIVE_EXPECT_CLIENT='LIVETEST silence PASS'`: the host sends broken voice frames untouched, and the client
 (which has LobbyGuard) has to log that it muted them.
+
+### Fuzzing
+
+Set `LIVETEST_FUZZ_SECONDS` and the host records the client's real packets, then sends mutants of them (and messages built
+from NGO's types) at `LIVETEST_FUZZ_RATE` per second (default 20) instead of running the cases. Every kick is fine; an
+exception without a kick, a receive over a second or a frozen frame (`LIVETEST_FUZZ_FREEZE`, default 2 s) is a failure,
+logged with the mutant's hex and written to `BepInEx/livetest-fuzz-failures.log`. `livetest-fuzz-last.hex` holds the last
+mutant if the host dies. `LIVETEST_FUZZ_SEED` and `LIVETEST_FUZZ_WARMUP` (seconds of recording, default 30) are optional.
+Set `MORTAR_LIVE_TIMEOUT` to the run length plus a margin.

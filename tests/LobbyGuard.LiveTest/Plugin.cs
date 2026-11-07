@@ -50,7 +50,15 @@ public class Plugin : BaseUnityPlugin
         if (args.Contains("--host"))
         {
             Log.LogInfo("LIVETEST ready host");
-            runner.StartCoroutine(RunHost());
+            if (Fuzzer.Enabled)
+            {
+                Fuzzer.Install();
+                runner.StartCoroutine(new Fuzzer().Run(lobbyGuardLines));
+            }
+            else
+            {
+                runner.StartCoroutine(RunHost());
+            }
         }
         else if (address != null)
         {
@@ -386,16 +394,16 @@ internal static class Cases
 
     private static uint Type<T>(NetworkManager manager) where T : INetworkMessage => manager.MessageManager.GetMessageType(typeof(T));
 
-    private static byte[] Packed(uint value)
+    internal static byte[] Packed(uint value)
     {
         using FastBufferWriter writer = new(8, Allocator.Temp);
         BytePacker.WriteValueBitPacked(writer, value);
         return writer.ToArray();
     }
 
-    private static byte[] Header(uint type, uint size) => Packed(type).Concat(Packed(size)).ToArray();
+    internal static byte[] Header(uint type, uint size) => Packed(type).Concat(Packed(size)).ToArray();
 
-    private static byte[] Message(uint type, byte[] payload) => Header(type, (uint)payload.Length).Concat(payload).ToArray();
+    internal static byte[] Message(uint type, byte[] payload) => Header(type, (uint)payload.Length).Concat(payload).ToArray();
 
     private static byte[] Repeat(byte[] message, int times) => Enumerable.Range(0, times).SelectMany(_ => message).ToArray();
 
@@ -420,7 +428,7 @@ internal static class Cases
     }
 
     // NGO's batch: magic, message count, total size, then a hash of the messages.
-    private static unsafe byte[] Batch(ushort count, byte[] messages, ushort magic = Magic, bool badHash = false)
+    internal static unsafe byte[] Batch(ushort count, byte[] messages, ushort magic = Magic, bool badHash = false)
     {
         byte[] packet = new byte[HeaderSize + messages.Length];
         Array.Copy(messages, 0, packet, HeaderSize, messages.Length);
