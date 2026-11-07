@@ -46,3 +46,22 @@ Accounts) and store it once:
 
 Then run `dotnet build -c Release -p:PublishTS=true`. Don't add `-bl` or `-v:d` to a publish build: MSBuild logs task
 inputs, and the token is one.
+
+## Live test
+
+`tests/LobbyGuard.LiveTest` is a plugin for a real two-player run. Loaded on the host and the client, it sends the host
+malformed payloads as if the client had sent them, checks that LobbyGuard kicked the client, and has the client rejoin.
+Each case logs `LIVETEST <case> PASS|FAIL <detail>`, then a summary. It is never packaged or published.
+
+Build it with LobbyGuard and DevLaunch, then run Mortar's sandbox from the mortar checkout (it copies the game twice,
+under Proton on a hidden display with no network, and deletes the copies when the run passes):
+
+```sh
+dotnet build -c Release
+export MORTAR_LAUNCH_SESSION=lobbyguard-live-1   # a launch uses two of the session's three
+export MORTAR_LIVE_HOST_PLUGINS="Mortar-DevLaunch-X.zip artifacts/bin/LobbyGuard.LiveTest/release/*.livetest.dll artifacts/bin/LobbyGuard/release/com.github.lethalcompanymodding.lobbyguard.dll"
+export MORTAR_LIVE_CLIENT_PLUGINS="Mortar-DevLaunch-X.zip artifacts/bin/LobbyGuard.LiveTest/release/*.livetest.dll"
+scripts/selftest.sh live-lobby
+```
+
+Use absolute paths. It is a LAN game, so there are no SteamIDs and the rejoin cooldown does not apply.
