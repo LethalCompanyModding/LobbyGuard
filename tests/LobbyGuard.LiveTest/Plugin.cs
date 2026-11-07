@@ -27,7 +27,6 @@ public class Plugin : BaseUnityPlugin
     internal static ManualLogSource Log { get; private set; } = null!;
 
     private readonly List<string> lobbyGuardLines = new();
-    private Hook? menuHook;
     private string? address;
     private bool wasConnected;
     private MonoBehaviour runner = null!;
@@ -54,30 +53,30 @@ public class Plugin : BaseUnityPlugin
         }
         else if (address != null)
         {
-            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
-            menuHook = new Hook(typeof(MenuManager).GetMethod(nameof(MenuManager.Start), hidden), (Action<Action<MenuManager>, MenuManager>)OnMenu);
             Log.LogInfo("LIVETEST ready client");
+            runner.StartCoroutine(WatchConnection());
             runner.StartCoroutine(WatchSilence());
         }
     }
 
-    private void Update()
+    // The game returns to its menu scene after a kick, which brings a new MenuManager. DevLaunch only joins at startup, so
+    // this notices the lost connection and joins again from that menu.
+    private IEnumerator WatchConnection()
     {
-        if (address != null && NetworkManager.Singleton is { IsConnectedClient: true })
+        while (true)
         {
-            wasConnected = true;
-        }
-    }
-
-    // The game goes back to the menu after a kick. DevLaunch only joins once, so this joins again.
-    private void OnMenu(Action<MenuManager> orig, MenuManager menu)
-    {
-        orig(menu);
-        if (wasConnected && !menu.isInitScene)
-        {
-            wasConnected = false;
-            Log.LogInfo("LIVETEST client disconnected, rejoining");
-            runner.StartCoroutine(Rejoin(menu));
+            NetworkManager manager = NetworkManager.Singleton;
+            if (manager != null && manager.IsConnectedClient)
+            {
+                wasConnected = true;
+            }
+            else if (wasConnected && FindObjectOfType<MenuManager>() is { isInitScene: false } menu)
+            {
+                wasConnected = false;
+                Log.LogInfo("LIVETEST client rejoining");
+                yield return runner.StartCoroutine(Rejoin(menu));
+            }
+            yield return new WaitForSeconds(0.5f);
         }
     }
 
@@ -95,7 +94,7 @@ public class Plugin : BaseUnityPlugin
             {
                 if (NetworkManager.Singleton.IsConnectedClient)
                 {
-                    Log.LogInfo($"LIVETEST client rejoined on attempt {attempt}");
+                    Log.LogInfo($"LIVETEST client rejoined (attempt {attempt})");
                     yield break;
                 }
                 yield return null;
