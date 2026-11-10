@@ -12,9 +12,9 @@ public sealed class RpcRulesTests
 {
     private const ulong Sender = 3;
 
-    private static readonly int[] Two = [0, 1];
-    private static readonly int[] One = [1];
-    private static readonly string[] ClientTypes = ["UInt64", "Int32"];
+    private static readonly int[] two = [0, 1];
+    private static readonly int[] one = [1];
+    private static readonly string[] clientTypes = ["UInt64", "Int32"];
 
     private static Call CallFrom(params object?[] args) => new() { Sender = Sender, Now = 100, SenderPlayer = 2, Args = args };
 
@@ -161,7 +161,7 @@ public sealed class RpcRulesTests
     [Fact]
     public void ASaleCanTakeUpToNinetyPercentOffAnItem()
     {
-        Call call = CallFrom(Two, 0);
+        Call call = CallFrom(two, 0);
         call.Credits = 500;
         call.PriceCap = 200;
         call.PriceFloor = (int)(200 * RpcRules.MinPriceFraction);
@@ -179,7 +179,7 @@ public sealed class RpcRulesTests
     {
         Call call = CallFrom(new int[RpcRules.MaxItemsPerOrder + 1], 10);
         Assert.Equal(Verdict.Kick, Judge("Terminal.BuyItemsServerRpc", call).Verdict);
-        call = CallFrom(One, 0);
+        call = CallFrom(one, 0);
         call.Credits = 500;
         Assert.Equal(Verdict.Allow, Judge("Terminal.BuyItemsServerRpc", call).Verdict);
         call.Invalid = "item 99";
@@ -190,7 +190,7 @@ public sealed class RpcRulesTests
     public void EveryRuleNamesARealRpcWithTheRightParameterTypes()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "Assembly-CSharp.dll");
-        using AssemblyDefinition game = AssemblyDefinition.ReadAssembly(path);
+        using var game = AssemblyDefinition.ReadAssembly(path);
         foreach ((string key, RpcRule rule) in RpcRules.Table)
         {
             string[] part = key.Split('.');
@@ -204,7 +204,7 @@ public sealed class RpcRulesTests
                 return method.Parameters[i].ParameterType.Name;
             }
             foreach (int i in rule.SelfPlayer) Assert.Equal("Int32", TypeAt(i));
-            foreach (int i in rule.SelfClient) Assert.Contains(TypeAt(i), ClientTypes);
+            foreach (int i in rule.SelfClient) Assert.Contains(TypeAt(i), clientTypes);
             foreach (int i in rule.ConnectedClient) Assert.Equal("UInt64", TypeAt(i));
             foreach (Bound b in rule.Bounds) Assert.Equal("Int32", TypeAt(b.Param));
             if (rule.OwnedArg >= 0) Assert.Equal("NetworkObjectReference", TypeAt(rule.OwnedArg));

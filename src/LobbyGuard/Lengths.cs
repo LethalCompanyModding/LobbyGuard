@@ -227,7 +227,7 @@ internal static class Lengths
         }
         Type[]? methodArguments = target.IsGenericMethod ? target.GetGenericArguments() : null;
         var sizes = new Sizes();
-        using ModuleDefinition scratch = ModuleDefinition.CreateModule("LobbyGuard.Names", ModuleKind.Dll);
+        using var scratch = ModuleDefinition.CreateModule("LobbyGuard.Names", ModuleKind.Dll);
         // A stray 0x28 byte that isn't a call just fails to resolve.
         for (int i = 0; i + 4 < il.Length; i++)
         {
@@ -352,15 +352,31 @@ internal static class Lengths
     private static ParameterDefinition? ParameterOf(MethodDefinition method, Instruction load)
     {
         int index;
-        if (load.OpCode == OpCodes.Ldarg_0) index = 0;
-        else if (load.OpCode == OpCodes.Ldarg_1) index = 1;
-        else if (load.OpCode == OpCodes.Ldarg_2) index = 2;
-        else if (load.OpCode == OpCodes.Ldarg_3) index = 3;
+        if (load.OpCode == OpCodes.Ldarg_0)
+        {
+            index = 0;
+        }
+        else if (load.OpCode == OpCodes.Ldarg_1)
+        {
+            index = 1;
+        }
+        else if (load.OpCode == OpCodes.Ldarg_2)
+        {
+            index = 2;
+        }
+        else if (load.OpCode == OpCodes.Ldarg_3)
+        {
+            index = 3;
+        }
         else if (load.OpCode == OpCodes.Ldarg || load.OpCode == OpCodes.Ldarg_S || load.OpCode == OpCodes.Ldarga || load.OpCode == OpCodes.Ldarga_S)
         {
             return load.Operand as ParameterDefinition;
         }
-        else return null;
+        else
+        {
+            return null;
+        }
+
         index -= method.HasThis ? 1 : 0;
         return index >= 0 && index < method.Parameters.Count ? method.Parameters[index] : null;
     }
@@ -373,7 +389,7 @@ internal static class Lengths
         {
             return null;
         }
-        MethodReference? method = instruction.Operand as MethodReference;
+        var method = instruction.Operand as MethodReference;
         int pop = op.StackBehaviourPop switch
         {
             StackBehaviour.Pop0 => 0,

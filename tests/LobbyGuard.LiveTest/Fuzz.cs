@@ -30,9 +30,9 @@ internal sealed class Fuzzer
     private const float RejoinWait = 120;
     private const float SuspectWait = 10;
 
-    private static readonly uint[] Edge = [0, 1, 2, 0x7F, 0x80, 0xFF, 0x100, 1000, 0xFFFF, 0x10000, 0x10000000, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF];
+    private static readonly uint[] edge = [0, 1, 2, 0x7F, 0x80, 0xFF, 0x100, 1000, 0xFFFF, 0x10000, 0x10000000, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF];
 
-    private static readonly byte[][] Evil =
+    private static readonly byte[][] evilPayloads =
     [
         [0xFF, 0xFF, 0xFF, 0x7F], [0xFF, 0xFF, 0xFF, 0xFF], [0, 0, 0, 0x80], [0xF0, 0xFF, 0xFF, 0xFF, 0x7F], [0xF9, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF], [0], [0xFF], [1, 0, 0, 0, 0, 0, 0, 0],
@@ -40,10 +40,10 @@ internal sealed class Fuzzer
 
     private delegate void DataEvent(NetworkConnectionManager self, ulong transportId, ref ArraySegment<byte> payload, float receiveTime);
 
-    private static readonly Dictionary<uint, List<byte[]>> Corpus = new();
-    private static readonly HashSet<string> Seen = new();
-    private static readonly List<byte[]> Packets = new();
-    private static readonly List<string> Exceptions = new();
+    private static readonly Dictionary<uint, List<byte[]>> corpus = new();
+    private static readonly HashSet<string> seen = new();
+    private static readonly List<byte[]> packets = new();
+    private static readonly List<string> exceptions = new();
     private static Hook? hook;
     private static bool injecting;
 
@@ -80,7 +80,7 @@ internal sealed class Fuzzer
         {
             if (injecting && type == LogType.Exception)
             {
-                Exceptions.Add($"{condition}\n{stack}");
+                exceptions.Add($"{condition}\n{stack}");
             }
         };
     }
@@ -103,17 +103,17 @@ internal sealed class Fuzzer
 
     private static void Record(byte[] packet)
     {
-        if (Packets.Count < 200 && Seen.Add(Convert.ToBase64String(packet)))
+        if (packets.Count < 200 && seen.Add(Convert.ToBase64String(packet)))
         {
-            Packets.Add(packet);
+            packets.Add(packet);
         }
         foreach ((uint type, byte[] message) in Split(packet))
         {
-            if (!Corpus.TryGetValue(type, out List<byte[]>? list))
+            if (!corpus.TryGetValue(type, out List<byte[]>? list))
             {
-                Corpus[type] = list = new List<byte[]>();
+                corpus[type] = list = new List<byte[]>();
             }
-            if (list.Count < CorpusPerType && Seen.Add(Convert.ToBase64String(message)))
+            if (list.Count < CorpusPerType && seen.Add(Convert.ToBase64String(message)))
             {
                 list.Add(message);
             }
@@ -169,7 +169,7 @@ internal sealed class Fuzzer
             yield break;
         }
         yield return new WaitForSeconds(warmup);
-        Plugin.Log.LogInfo($"LIVETEST fuzz corpus {Packets.Count} packets, messages by type: {string.Join(", ", Corpus.OrderBy(p => p.Key).Select(p => $"{p.Key}x{p.Value.Count}"))}");
+        Plugin.Log.LogInfo($"LIVETEST fuzz corpus {packets.Count} packets, messages by type: {string.Join(", ", corpus.OrderBy(p => p.Key).Select(p => $"{p.Key}x{p.Value.Count}"))}");
         float start = Time.realtimeSinceStartup;
         float end = start + seconds;
         float nextReport = start + 60;
@@ -249,9 +249,9 @@ internal sealed class Fuzzer
         {
             ring.Dequeue();
         }
-        int before = Exceptions.Count;
+        int before = exceptions.Count;
         Exception? thrown = null;
-        Stopwatch watch = Stopwatch.StartNew();
+        var watch = Stopwatch.StartNew();
         injecting = true;
         try
         {
@@ -274,17 +274,17 @@ internal sealed class Fuzzer
         {
             suspects.Add((Time.realtimeSinceStartup, index, hex, $"thrown out of the receive path: {thrown}"));
         }
-        else if (Exceptions.Count > before)
+        else if (exceptions.Count > before)
         {
-            suspects.Add((Time.realtimeSinceStartup, index, hex, $"logged: {Exceptions[before]}"));
+            suspects.Add((Time.realtimeSinceStartup, index, hex, $"logged: {exceptions[before]}"));
         }
-        Exceptions.Clear();
+        exceptions.Clear();
     }
 
     // An exception is fine when a kick follows it; one the client survives for SuspectWait seconds is a failure.
     private void ExpireSuspects()
     {
-        foreach (var suspect in suspects.Where(s => Time.realtimeSinceStartup - s.At > SuspectWait).ToList())
+        foreach ((float At, long Index, string Hex, string Detail) suspect in suspects.Where(s => Time.realtimeSinceStartup - s.At > SuspectWait).ToList())
         {
             suspects.Remove(suspect);
             Fail("exception-without-kick", suspect.Index, suspect.Hex, suspect.Detail);
@@ -313,7 +313,7 @@ internal sealed class Fuzzer
     private byte[] Make(NetworkManager manager)
     {
         int roll = rng.Next(100);
-        if (Corpus.Count == 0 || roll >= 45 && roll < 70)
+        if (corpus.Count == 0 || roll >= 45 && roll < 70)
         {
             return Cap(Structured(manager));
         }
@@ -321,9 +321,9 @@ internal sealed class Fuzzer
         {
             return Cap(FromCorpus());
         }
-        if (roll < 85 && Packets.Count > 0)
+        if (roll < 85 && packets.Count > 0)
         {
-            return Cap(Mutate(Packets[rng.Next(Packets.Count)]));
+            return Cap(Mutate(packets[rng.Next(packets.Count)]));
         }
         return Cap(HeaderEdit(Cases.Batch((ushort)1, FromCorpusMessages(1).SelectMany(m => m).ToArray())));
     }
@@ -332,7 +332,7 @@ internal sealed class Fuzzer
 
     private IEnumerable<byte[]> FromCorpusMessages(int count)
     {
-        List<byte[]> all = Corpus.Values.SelectMany(l => l).ToList();
+        var all = corpus.Values.SelectMany(l => l).ToList();
         for (int i = 0; i < count && all.Count > 0; i++)
         {
             yield return all[rng.Next(all.Count)];
@@ -342,7 +342,7 @@ internal sealed class Fuzzer
     // Recorded messages with a few byte mutations each, in a batch with a valid hash so they reach the message handlers.
     private byte[] FromCorpus()
     {
-        List<byte[]> messages = FromCorpusMessages(rng.Next(1, 5)).Select(MutateMessage).ToList();
+        var messages = FromCorpusMessages(rng.Next(1, 5)).Select(MutateMessage).ToList();
         if (messages.Count > 0 && rng.Next(8) == 0)
         {
             messages.Add(messages[rng.Next(messages.Count)]);
@@ -350,7 +350,7 @@ internal sealed class Fuzzer
         ushort count = (ushort)messages.Count;
         if (rng.Next(10) == 0)
         {
-            count = (ushort)Pick(Edge);
+            count = (ushort)Pick(edge);
         }
         return Cases.Batch(count, messages.SelectMany(m => m).ToArray());
     }
@@ -393,10 +393,10 @@ internal sealed class Fuzzer
         switch (rng.Next(3))
         {
             case 0:
-                BitConverter.GetBytes((ushort)Pick(Edge)).CopyTo(result, 2);
+                BitConverter.GetBytes((ushort)Pick(edge)).CopyTo(result, 2);
                 break;
             case 1:
-                BitConverter.GetBytes((int)Pick(Edge)).CopyTo(result, 4);
+                BitConverter.GetBytes((int)Pick(edge)).CopyTo(result, 4);
                 break;
             default:
                 result[rng.Next(HeaderSize)] ^= (byte)(1 << rng.Next(8));
@@ -425,7 +425,7 @@ internal sealed class Fuzzer
             case 3:
             case 4:
                 // Lengths are packed ints or little-endian ints, so overwrite with values that claim too much.
-                byte[] evil = Evil[rng.Next(Evil.Length)];
+                byte[] evil = evilPayloads[rng.Next(evilPayloads.Length)];
                 return data.Take(at).Concat(evil).Concat(data.Skip(at + evil.Length)).ToArray();
             case 5:
                 return data.Take(at).ToArray();
@@ -439,13 +439,13 @@ internal sealed class Fuzzer
     private byte[] SwapType(byte[] message)
     {
         (uint _, uint size, byte[] payload) = Parse(message);
-        return Cases.Header(Pick(Corpus.Count > 0 && rng.Next(2) == 0 ? Corpus.Keys.ToArray() : [(uint)rng.Next(0, 40)]), size).Concat(payload).ToArray();
+        return Cases.Header(Pick(corpus.Count > 0 && rng.Next(2) == 0 ? corpus.Keys.ToArray() : [(uint)rng.Next(0, 40)]), size).Concat(payload).ToArray();
     }
 
     private byte[] EditSize(byte[] message)
     {
         (uint type, uint size, byte[] payload) = Parse(message);
-        uint edited = rng.Next(3) == 0 ? size + 1 : rng.Next(3) == 0 ? (uint)Math.Max(0, (int)size - 1) : Pick(Edge);
+        uint edited = rng.Next(3) == 0 ? size + 1 : rng.Next(3) == 0 ? (uint)Math.Max(0, (int)size - 1) : Pick(edge);
         return Cases.Header(type, edited).Concat(payload).ToArray();
     }
 
@@ -474,10 +474,10 @@ internal sealed class Fuzzer
     {
         NetworkObject[] objects = manager.SpawnManager.SpawnedObjects.Values.ToArray();
         NetworkObject? target = objects.Length > 0 ? objects[rng.Next(objects.Length)] : null;
-        ulong objectId = target != null && rng.Next(10) != 0 ? target.NetworkObjectId : Pick(Edge);
-        uint behaviour = target != null && target.ChildNetworkBehaviours.Count > 0 && rng.Next(10) != 0 ? (uint)rng.Next(target.ChildNetworkBehaviours.Count) : Pick(Edge);
-        uint method = Pick(Edge);
-        if (target != null && target.ChildNetworkBehaviours.Count > behaviour && NetworkBehaviour.__rpc_func_table.TryGetValue(target.ChildNetworkBehaviours[(int)behaviour].GetType(), out var table) && table.Count > 0 && rng.Next(10) != 0)
+        ulong objectId = target != null && rng.Next(10) != 0 ? target.NetworkObjectId : Pick(edge);
+        uint behaviour = target != null && target.ChildNetworkBehaviours.Count > 0 && rng.Next(10) != 0 ? (uint)rng.Next(target.ChildNetworkBehaviours.Count) : Pick(edge);
+        uint method = Pick(edge);
+        if (target != null && target.ChildNetworkBehaviours.Count > behaviour && NetworkBehaviour.__rpc_func_table.TryGetValue(target.ChildNetworkBehaviours[(int)behaviour].GetType(), out Dictionary<uint, NetworkBehaviour.RpcReceiveHandler>? table) && table.Count > 0 && rng.Next(10) != 0)
         {
             method = table.Keys.ElementAt(rng.Next(table.Count));
         }
@@ -506,19 +506,19 @@ internal sealed class Fuzzer
                     bytes.Add((byte)rng.Next(256));
                     break;
                 case 1:
-                    bytes.AddRange(BitConverter.GetBytes((ushort)Pick(Edge)));
+                    bytes.AddRange(BitConverter.GetBytes((ushort)Pick(edge)));
                     break;
                 case 2:
-                    bytes.AddRange(BitConverter.GetBytes(Pick(Edge)));
+                    bytes.AddRange(BitConverter.GetBytes(Pick(edge)));
                     break;
                 case 3:
-                    bytes.AddRange(BitConverter.GetBytes((ulong)Pick(Edge) << (rng.Next(2) * 32) | Pick(Edge)));
+                    bytes.AddRange(BitConverter.GetBytes((ulong)Pick(edge) << (rng.Next(2) * 32) | Pick(edge)));
                     break;
                 case 4:
-                    bytes.AddRange(Cases.Packed(Pick(Edge)));
+                    bytes.AddRange(Cases.Packed(Pick(edge)));
                     break;
                 case 5:
-                    bytes.AddRange(Cases.Packed(rng.Next(3) == 0 ? Pick(Edge) : (uint)rng.Next(0, 20)));
+                    bytes.AddRange(Cases.Packed(rng.Next(3) == 0 ? Pick(edge) : (uint)rng.Next(0, 20)));
                     bytes.AddRange(RandomBytes(rng.Next(0, 20)));
                     break;
                 default:

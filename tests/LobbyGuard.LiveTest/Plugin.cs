@@ -187,7 +187,7 @@ public class Plugin : BaseUnityPlugin
         yield return new WaitForSeconds(SettleSeconds * 2);
         float joinWait = RejoinWait;
         bool settled = true;
-        List<Case> cases = Cases.All.ToList();
+        var cases = Cases.All.ToList();
         try
         {
             cases.AddRange(RpcCases.Build());

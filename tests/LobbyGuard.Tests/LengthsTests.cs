@@ -118,7 +118,7 @@ public sealed class LengthsTests
     {
         MethodInfo method = typeof(Reads).GetMethod(name, BindingFlags.Static | BindingFlags.Public)!;
         Lengths.Hookable? plan = Lengths.Plan(method);
-        using ModuleDefinition module = ModuleDefinition.ReadModule(typeof(Reads).Assembly.Location);
+        using var module = ModuleDefinition.ReadModule(typeof(Reads).Assembly.Location);
         TypeDefinition type = module.GetTypes().Single(t => t.FullName == typeof(Reads).FullName!.Replace('+', '/'));
         var il = new ILContext(type.Methods.Single(m => m.Name == name));
         if (plan != null)
