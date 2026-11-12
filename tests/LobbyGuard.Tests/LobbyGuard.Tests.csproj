@@ -10,7 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <PackageReference Include="xunit.v3" Version="4.0.3" />
   </ItemGroup>
 
   <!-- The game references aren't copied next to the build, and a test that reads Netcode's types needs them. -->
