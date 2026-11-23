@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [Unreleased]
 
 - Calls any player may make, which griefers abuse, are checked now. The host ignores a hit from far out of reach, a grab
   or use of an item someone else holds, selling or killing what the player doesn't own, a second vote to send the ship
